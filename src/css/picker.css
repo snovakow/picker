@@ -1,0 +1,68 @@
+/* Its words in the monospaced family and its colour names in Roboto, as the picker sets them (fontFamilies, paint.ts). */
+div.___picker {
+	font-family: "Roboto Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
+	position: absolute;
+	white-space: nowrap;
+	max-width: 100%;
+	top: 0px;
+	left: 0px;
+	overflow: auto;
+	background-color: rgb(47, 50, 55);
+	border: 2px solid black;
+	user-select: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+}
+
+div.___picker>.___top {
+	position: relative;
+	text-align: center;
+	color: white;
+	cursor: grab;
+}
+
+div.___picker>.___top>.___close {
+	position: absolute;
+	right: 0px;
+	top: 0px;
+	border-left: 1px solid black;
+	cursor: pointer;
+}
+
+div.___picker>.___body {
+	position: relative;
+	border-top: 2px solid black;
+	box-sizing: border-box;
+}
+
+div.___picker>.___body .___element {
+	position: relative;
+	display: inline-block;
+	vertical-align: top;
+}
+
+div.___picker>.___body table.___colors {
+	border-collapse: collapse;
+}
+
+div.___picker>.___body table.___colors,
+div.___picker>.___body table.___colors th,
+div.___picker>.___body table.___colors td {
+	border: 1px solid black;
+}
+
+div.___picker>.___body .___colorBox {
+	font-family: Roboto, sans-serif;
+	width: 64px;
+	text-align: center;
+	cursor: pointer;
+}
+
+div.___picker>.___body .___white {
+	color: white;
+}
+
+div.___picker>.___body .___black {
+	color: black;
+}

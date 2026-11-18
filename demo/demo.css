@@ -1,0 +1,115 @@
+/* The demo page. Its body is positioned: the page's input a picker's fields are typed through is placed in the body's pixels. */
+body {
+	position: relative;
+	margin: 0;
+	background: #eef0f3;
+	color: #1b1f24;
+	font-family: system-ui, sans-serif;
+}
+
+main {
+	max-width: 960px;
+	margin: 0 auto;
+	padding: 24px 16px 96px;
+}
+
+h1 {
+	margin: 0 0 4px;
+	font-size: 28px;
+}
+
+h2 {
+	margin: 32px 0 12px;
+	font-size: 18px;
+}
+
+.lead,
+.note {
+	margin: 0 0 12px;
+	color: #4b5563;
+}
+
+.wells {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 16px;
+}
+
+.well {
+	padding: 12px;
+	border-radius: 8px;
+	background: #ffffff;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.well h3 {
+	margin: 0 0 8px;
+	font-size: 14px;
+	font-weight: 500;
+}
+
+.well code {
+	display: block;
+	margin-top: 6px;
+	color: #4b5563;
+	font-size: 12px;
+}
+
+.colourWell {
+	display: block;
+}
+
+.dialogRow {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+}
+
+.dialogRow button {
+	display: inline-flex;
+	gap: 8px;
+	align-items: center;
+	padding: 8px 14px;
+	border: 1px solid rgba(0, 0, 0, 0.25);
+	border-radius: 6px;
+	background: #ffffff;
+	font: inherit;
+	cursor: pointer;
+}
+
+.swatch {
+	width: 20px;
+	height: 20px;
+	border: 1px solid rgba(0, 0, 0, 0.25);
+	border-radius: 4px;
+}
+
+.view {
+	display: block;
+	max-width: 100%;
+	border-radius: 8px;
+}
+
+.log {
+	min-height: 120px;
+	margin: 0;
+	padding: 12px;
+	border-radius: 8px;
+	background: #1f2329;
+	color: #e5e7eb;
+	font-size: 12px;
+	white-space: pre-wrap;
+}
+
+.offers {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+}
+
+.offers label {
+	display: inline-flex;
+	gap: 6px;
+	align-items: center;
+	cursor: pointer;
+}

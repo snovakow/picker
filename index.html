@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Color Picker</title>
+	<link rel="icon" href="data:,">
+</head>
+
+<body>
+	<main>
+		<h1>Color Picker</h1>
+		<p class="lead">The colour well and the picker it opens, with its eyedropper, and the Color Picker dialog.</p>
+
+		<section>
+			<h2>Colour Wells</h2>
+			<div id="wells" class="wells"></div>
+		</section>
+
+		<section>
+			<h2>Color Picker Dialog</h2>
+			<div class="dialogRow">
+				<button id="dialog" type="button"><span id="dialogSwatch" class="swatch"></span>Open the Dialog</button>
+				<code id="dialogValue"></code>
+			</div>
+		</section>
+
+		<section>
+			<h2>View</h2>
+			<p class="note">Flat colours of known bytes over gradients, for the eyedropper to pick from.</p>
+			<canvas id="view" class="view"></canvas>
+		</section>
+
+		<section>
+			<h2>Eyedropper</h2>
+			<p class="note">What the page offers the wells' eyedroppers.</p>
+			<div class="offers">
+				<label><input type="radio" name="offer" value="auto" checked> Anywhere on Screen</label>
+				<label><input type="radio" name="offer" value="view"> The View Only</label>
+				<label><input type="radio" name="offer" value="none"> No View</label>
+			</div>
+		</section>
+
+		<section>
+			<h2>Events</h2>
+			<pre id="log" class="log"></pre>
+		</section>
+	</main>
+	<script type="module" src="/demo/main.ts"></script>
+</body>
+
+</html>

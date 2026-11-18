@@ -1,0 +1,19 @@
+{
+  "private": true,
+  "name": "picker",
+  "version": "0.1.0",
+  "description": "Color Picker: the colour well, the picker it opens with its eyedropper, and the Color Picker dialog, with a demo page",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.6",
+    "vitest": "^4.0.18"
+  }
+}
