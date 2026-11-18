@@ -1,11 +1,11 @@
 /**
  * @fileoverview A colour widget's picker as it runs, apart from what holds
- * the widget, so any host can show it, as a colour well on a page does
- * (colourWell.ts). The picker holds what is open and what a press on it
- * holds, paints itself into a canvas of its own, and works the colour
- * through its host (`PickerHost`), which owns the widget's state, the page's
- * input, where the picker stands and what it is drawn on. Its layout and
- * maths are pickerView.ts's.
+ * the widget, so any host can show it, as the page's picker does for a
+ * page's colour wells (pagePicker.ts). The picker holds what is open and
+ * what a press on it holds, paints itself into a canvas of its own, and
+ * works the colour through its host (`PickerHost`), which owns the widget's
+ * state, the page's input, where the picker stands and what it is drawn on.
+ * Its layout and maths are pickerView.ts's.
  *
  * A host keeps this order, which the picker's behaviour rests on:
  * - `forgetPress` wherever a press that set the colour at its point is
@@ -27,24 +27,31 @@
  * its foot, each 0 to 1 (`Uv`), and a held press's moves and release in the
  * host's pixels, read through the box the picker stands at.
  *
- * The eyedropper takes a colour from outside the picker by what its host
- * offers (`DropperOffer`): the browser's own eyedropper where the browser
- * has one and the host lets it be used, which picks from anywhere on the
- * screen; otherwise the host's view, whose press while the eyedropper is
+ * The eyedropper takes a colour from outside the picker by the mode its host
+ * sets (`Eyedropper`): the browser's own eyedropper, which picks from
+ * anywhere on the screen, falling back to a view where the browser has
+ * none, and with no view either drawn unavailable, its tooltip saying where
+ * it works; a view the app provides, whose press while the eyedropper is
  * armed is the eyedropper's, the colour under the pointer taken through the
- * press and the eyedropper put away as it is released; otherwise nothing,
- * the host saying why in a note its tooltip gives. A colour it takes is
- * taken as a named cell's is, the alpha kept, and tells `change` where it
- * changes the colour, as every colour taken does. A press on the picker
- * anywhere but the eyedropper puts an armed one away, as do Escape while no
- * field holds the input, the picker shutting and the host's offer no longer
- * holding its tier.
+ * press and the eyedropper put away as it is released; the app's own pick,
+ * which hands the picker each colour it takes (`CustomPick`); or none, the
+ * picker showing no eyedropper. A colour it takes is taken as a named cell's
+ * is, the alpha kept, and tells `change` where it changes the colour, as
+ * every colour taken does. A press on the picker anywhere but the eyedropper
+ * puts an armed one away, and the tooltip a click on an unavailable one
+ * pinned open, as do Escape while no field holds the input, the picker
+ * shutting, and the host's eyedropper changing, unless from one view to
+ * another.
+ *
+ * A host that can pop the picker out of its page into a window of its own
+ * has the picker show a button for it (`dockButton`), whose click the host
+ * answers (`dockClicked`).
  */
 
 import { CHANNELS, COLOUR_SPACES, SWATCHES, readChannel, type ColourSpace, type Hsv } from './colour.ts';
-import { DROPPER_TIPS, DRAGGED_REGIONS, channelsOf, colourAtRegion, fieldBox, fieldChain, fieldText, layoutPicker, paintPicker, pickerMono, pickerRegionAt, sameRegion, squareColour, termsAtSquare, termsColour, termsKeeping, termsOf, termsWithChannel, wheelGeometryOf, withSquare, type DropperTier, type PickerLayout, type PickerTerms, type Region } from './pickerView.ts';
+import { DROPPER_TIPS, DRAGGED_REGIONS, channelsOf, colourAtRegion, fieldBox, fieldChain, fieldText, layoutPicker, paintPicker, pickerMono, pickerRegionAt, sameRegion, squareColour, termsAtSquare, termsColour, termsKeeping, termsOf, termsWithChannel, wheelGeometryOf, withSquare, type DockButton, type DropperTier, type PickerLayout, type PickerTerms, type Region } from './pickerView.ts';
 import { hueOfAngle, makeWheelRenderer, type Rgb, type WheelGeometry, type WheelRenderer, type WheelTerms } from './wheel.ts';
-import { pageInput, pageInputMade, type InputHost, type InputKind, type InputLook } from './input.ts';
+import { pageInput, pageInputMade, type InputHost, type InputKind, type InputLook, type PageInput } from './input.ts';
 import { PALETTE, fieldLine, fieldRadius, fontFamilies } from './paint.ts';
 import { CONTROL, inBox, type Box, type Laid, type TextMeasure, type WidgetState } from './layout.ts';
 import { cssColour, type PickerMode, type ColourWidget, type WidgetEvent } from './options.ts';
@@ -58,9 +65,9 @@ export interface Uv {
 
 /**
  * What a picker asks of its host, which holds the colour widget and shows
- * the picker: on a page, a colour well (`ColourWell`); in a 3D scene or in
- * VR, a host that draws the widget and the picker on planes and hits them
- * with rays.
+ * the picker: on a page, the page's picker (`PagePicker`), serving the
+ * page's colour wells; in a 3D scene or in VR, a host that draws the widget
+ * and the picker on planes and hits them with rays.
  */
 export interface PickerHost {
 	/** The widget as laid out, in the host's pixels; null where it is not, which shuts the picker. */
@@ -91,22 +98,60 @@ export interface PickerHost {
 	focusAfter(widget: ColourWidget): boolean;
 	/** What the page's input tells: the host itself, which a hand-off is made to and a take-back is checked against. */
 	readonly inputHost: InputHost;
+	/** The input the picker's fields are typed through where it is not the page's (`pageInput`): a host that shows the picker in another document, as a window of its own, gives one standing there, and places it over the field that holds it. The colour itself keeps the page's input. Null or left out for the page's. */
+	readonly fieldInput?: PageInput | null;
 	/** Shuts every other popover the host and its kind show, as a picker opens. */
 	closeOther(): void;
-	/** The eyedropper as the host offers it. */
-	readonly dropper: DropperOffer<object>;
+	/** The eyedropper the host sets for a widget's picker (`Eyedropper`), read as the picker opens and as the host says it changed (`dropperChanged`). */
+	dropperOf(widget: ColourWidget): Eyedropper<object>;
+	/** The button the picker shows left of its close to pop it out of the host's page into a window of its own, or to dock it back (`DockButton`); null or left out for none, as on a host that shows the picker nowhere else. Read as the picker is laid out, which the host asks for (`relay`) as it changes. */
+	readonly dockButton?: DockButton | null;
+	/** The dock button clicked: the host pops the picker out or docks it back, and lays it out again (`relay`). */
+	dockClicked?(): void;
 }
 
+/** The eyedropper's modes, as `Eyedropper` names them. */
+export const EYEDROPPER_MODES = ['screen', 'view', 'custom', 'disabled'] as const;
+
+export type EyedropperMode = (typeof EYEDROPPER_MODES)[number];
+
 /**
- * The eyedropper as a host offers it: whether the browser's own may be used;
- * and the view the eyedropper's frame tier picks from, or, where the host has
- * none, the note its tooltip gives under "Eyedropper not available", which
- * says why the host offers no view. A page's view is a `DropperView`, whose
- * presses a colour well takes; another host's is its own, which takes the
- * presses on itself and hands the colour under them to the picker
- * (`takeDropped`).
+ * The eyedropper as a host sets it, by its mode:
+ *
+ * - `screen` — the browser's own eyedropper, which picks from anywhere on the
+ *   screen; where the browser has none, as every browser but Chromium's on a
+ *   computer, it falls back to picking from `view`, and where no view is
+ *   given it is unavailable: drawn half as solid, its tooltip saying it
+ *   needs Chrome or Edge on a computer, which a click on it shows as well
+ * - `view` — picks from a surface the app provides, such as a video feed: a
+ *   page's `DropperView`, whose presses a page's picker takes, or another
+ *   host's own, which takes the presses on itself and hands the colour under
+ *   them to the picker (`takeDropped`)
+ * - `custom` — the app picks the colour by its own means, where the picker
+ *   cannot reach what is picked from (`CustomPick`)
+ * - `disabled` — no eyedropper: the picker shows none
+ *
+ * `tip` gives the tooltip's words in `view` and `custom`; left out, the
+ * mode's own (`DROPPER_TIPS`).
  */
-export type DropperOffer<View extends object = DropperView> = { screen: boolean } & ({ view: View } | { view: null; note: string });
+export type Eyedropper<View extends object = DropperView> =
+	| { mode: 'screen'; view?: View | null }
+	| { mode: 'view'; view: View; tip?: string }
+	| { mode: 'custom'; pick: CustomPick; tip?: string }
+	| { mode: 'disabled' };
+
+/**
+ * The app's own pick, called as the eyedropper is clicked in `custom`: the
+ * eyedropper is drawn armed while the app picks, and each colour the app
+ * hands to `take`, as hex, is taken as a named cell's is, its bytes with the
+ * alpha the colour carries kept, telling `change` where it changes the
+ * colour; `take(colour, true)` takes the last and puts the eyedropper away,
+ * and `take(null, true)` puts it away taking nothing. `signal` aborts where
+ * the eyedropper is put away before the app is done: a second click on it, a
+ * press anywhere else on the picker, Escape, the eyedropper changed, or the
+ * picker shutting; a take after that does nothing.
+ */
+export type CustomPick = (take: (colour: string | null, done?: boolean) => void, signal: AbortSignal) => void;
 
 /** What a host's view gives the eyedropper: the element a press on which, while the eyedropper is armed, is the eyedropper's, and the colour drawn at a point of the page. */
 export interface DropperView {
@@ -167,8 +212,8 @@ interface OpenPicker {
 	offset: { x: number; y: number };
 	/** The side of its colour the host stood the picker on as the viewer began to carry it, which it keeps while it is open; null until it is carried, and on a host that stands it on no side. */
 	side: 'above' | 'below' | null;
-	/** The eyedropper: whether it is armed on the host's view, whether its tooltip was shown by a click where it can pick nothing, and the browser's eyedropper while it is open, by what aborts it. */
-	dropper: { armed: boolean; tip: boolean; abort: AbortController | null };
+	/** The eyedropper: whether it is armed, on a view or in the app's own pick; the browser's eyedropper or the app's pick while it is open, by what aborts it; and whether a click on it pinned its tooltip open where it is unavailable, which a touch has no pointer over to show it. */
+	dropper: { armed: boolean; abort: AbortController | null; pinned: boolean };
 }
 
 /**
@@ -316,9 +361,14 @@ export class ColourPicker {
 			this.close();
 			return;
 		}
-		popover.layout = carriedBy(layoutPicker(laid, this.host.width, this.host.height, this.host.measure, popover.mode, this.tipWords()), popover.offset);
+		popover.layout = carriedBy(this.layoutOf(laid, popover.mode), popover.offset);
 		this.host.placePopover(popover.layout.box);
 		this.paintThePicker();
+	}
+
+	/** A widget's picker laid out in a mode, with its eyedropper and the host's dock button. */
+	private layoutOf(laid: Laid, mode: PickerMode): PickerLayout {
+		return layoutPicker(laid, this.host.width, this.host.height, this.host.measure, mode, this.tipWords(laid.widget), this.dockButton());
 	}
 
 	/** Reads the open picker's colour and terms afresh from what the widget holds, as a script writes its value. */
@@ -353,11 +403,8 @@ export class ColourPicker {
 		const py = box.y + (1 - uv.y) * box.h;
 		const widget = popover.layout.widget;
 		const region = pickerRegionAt(popover.layout, px - box.x, py - box.y, popover.terms.unit, this.tipShown(popover));
-		// A press anywhere on the picker but the eyedropper puts an armed one away, and then works as ever.
-		if (popover.dropper.armed && region?.kind !== 'dropper') {
-			popover.dropper.armed = false;
-			this.paintThePicker();
-		}
+		// A press anywhere on the picker but the eyedropper and its tooltip puts an armed one away, or the tooltip a click pinned open, and then works as ever; one on the tooltip leaves it standing for its click, which a touch has no pointer over to find it by.
+		if ((popover.dropper.armed || popover.dropper.pinned) && region?.kind !== 'dropper' && region?.kind !== 'tip') this.putDropperAway();
 		const dragged = region !== null && DRAGGED_REGIONS.includes(region.kind);
 		const field = region !== null && fieldBox(popover.layout, region) !== null;
 		// A carry starts from where the picker stands, less its standing on the colour's other side, which the side it keeps carries.
@@ -537,9 +584,16 @@ export class ColourPicker {
 	// The eyedropper
 	// ---------------------------------------------------------------------
 
-	/** Whether the open picker's eyedropper is armed on the host's view, whose next press, its moves and its release take the colour under the pointer (`takeDropped`). */
+	/** Whether the open picker's eyedropper is armed on a view, whose next press, its moves and its release take the colour under the pointer (`takeDropped`). */
 	dropping(): boolean {
-		return this.popover?.dropper.armed === true && this.dropperTier() === 'frame';
+		const picker = this.popover;
+		return picker?.dropper.armed === true && this.eyedropperOf(picker.layout.widget)?.tier === 'view';
+	}
+
+	/** Whether the open picker's eyedropper is armed in the app's own pick (`CustomPick`), whose presses, wherever they land, a host leaves to the app. */
+	picking(): boolean {
+		const picker = this.popover;
+		return picker?.dropper.armed === true && picker.dropper.abort !== null && this.eyedropperOf(picker.layout.widget)?.tier === 'custom';
 	}
 
 	/**
@@ -551,8 +605,8 @@ export class ColourPicker {
 	 * @param done - Whether the press has been let go
 	 */
 	takeDropped(rgb: Rgb | null, done: boolean): void {
-		const picker = this.popover;
-		if (!picker?.dropper.armed) return;
+		if (!this.dropping()) return;
+		const picker = this.popover!;
 		if (rgb) this.takeSampled(rgb);
 		if (done) {
 			picker.dropper.armed = false;
@@ -560,61 +614,116 @@ export class ColourPicker {
 		}
 	}
 
-	/** Puts the eyedropper away: disarmed, the browser's open one aborted, and its tooltip put away. */
+	/** Puts the eyedropper away: disarmed, the browser's open one or the app's pick aborted, and the tooltip a click pinned open let go. */
 	putDropperAway(): void {
 		const picker = this.popover;
 		if (picker && this.dropperOff(picker)) this.paintThePicker();
 	}
 
-	/** Reads the host's offer afresh, as it has changed: an eyedropper armed in a tier the offer no longer holds is put away, and the picker laid out again with its tooltip's words and painted. */
+	/** Reads the host's eyedropper afresh, as it has changed: one armed on a view stays armed where the eyedropper still picks from a view, any other and a tooltip a click pinned open are put away, and the picker is laid out again, with an eyedropper or without, and painted. */
 	dropperChanged(): void {
 		const picker = this.popover;
 		if (!picker) return;
-		const tier = this.dropperTier();
-		if (tier !== 'frame') picker.dropper.armed = false;
-		if (tier !== 'off') picker.dropper.tip = false;
-		if (tier !== 'screen' && picker.dropper.abort) {
-			const abort = picker.dropper.abort;
-			picker.dropper.abort = null;
-			abort.abort();
-		}
+		const viewArmed = picker.dropper.armed && picker.dropper.abort === null;
+		if (!(viewArmed && this.eyedropperOf(picker.layout.widget)?.tier === 'view')) this.dropperOff(picker);
 		this.relay();
 	}
 
-	/** What the eyedropper picks from: anywhere on the screen where the browser has its own eyedropper and the host lets it be used, else the host's view, else nothing. */
-	private dropperTier(): DropperTier {
-		const offer = this.host.dropper;
-		if (offer.screen && eyeDropperOf()) return 'screen';
-		return offer.view ? 'frame' : 'off';
+	/**
+	 * What a widget's eyedropper picks from, and its tooltip's words, by the
+	 * mode its host sets (`Eyedropper`): the screen where the browser has its
+	 * own eyedropper, else the view given beside it, else nothing, the
+	 * eyedropper unavailable; a view; or the app's own pick. Null where there
+	 * is none: disabled, or a mode that does not read.
+	 */
+	private eyedropperOf(widget: ColourWidget): { tier: DropperTier; tip: string } | null {
+		// Read as a page's script may give it, without types.
+		const set = this.host.dropperOf(widget) as { mode?: unknown; view?: unknown; pick?: unknown; tip?: unknown } | null;
+		const tip = (own: string): string => (typeof set?.tip === 'string' && set.tip.trim() ? set.tip : own);
+		const view = typeof set?.view === 'object' && set.view !== null;
+		switch (set?.mode) {
+			case 'screen':
+				if (eyeDropperOf()) return { tier: 'screen', tip: DROPPER_TIPS.screen };
+				return view ? { tier: 'view', tip: DROPPER_TIPS.fallback } : { tier: 'unavailable', tip: DROPPER_TIPS.unavailable };
+			case 'view':
+				return view ? { tier: 'view', tip: tip(DROPPER_TIPS.view) } : null;
+			case 'custom':
+				return typeof set.pick === 'function' ? { tier: 'custom', tip: tip(DROPPER_TIPS.custom) } : null;
+			default:
+				return null;
+		}
 	}
 
-	/** The eyedropper's tooltip: its tier's words, and where it picks nothing, the host's note on a line of its own. */
-	private tipWords(): string {
-		const offer = this.host.dropper;
-		const tier = this.dropperTier();
-		return offer.view === null && tier === 'off' ? `${DROPPER_TIPS.off}\n${offer.note}` : DROPPER_TIPS[tier];
+	/** The open widget's eyedropper's tooltip words, which lay it out; null for no eyedropper. */
+	private tipWords(widget: ColourWidget): string | null {
+		return this.eyedropperOf(widget)?.tip ?? null;
 	}
 
-	/** Whether the eyedropper's tooltip shows: while the pointer is over the eyedropper or the tooltip, while the eyedropper is armed on the view, which a touch has no pointer over, and where it picks nothing, from a click on it until the picker's next click. */
+	/** The dock button the host shows, which lays it out; null for none. */
+	private dockButton(): DockButton | null {
+		const dock = this.host.dockButton;
+		return dock === 'popout' || dock === 'dock' ? dock : null;
+	}
+
+	/** Whether the eyedropper's tooltip shows: while the pointer is over the eyedropper or the tooltip, while it is armed, on a view or in the app's own pick, and while a click on it pinned it open where it is unavailable, the last two showing it to a touch, which has no pointer over it. */
 	private tipShown(picker: OpenPicker): boolean {
 		const lit = picker.lit?.kind;
-		return lit === 'dropper' || lit === 'tip' || picker.dropper.tip || (picker.dropper.armed && this.dropperTier() === 'frame');
+		return lit === 'dropper' || lit === 'tip' || picker.dropper.armed || picker.dropper.pinned;
 	}
 
-	/** A click on the eyedropper, by its tier: the browser's own opened, the eyedropper armed on the view or put away, or its tooltip shown or put away where it picks nothing. */
-	private dropperClicked(picker: OpenPicker, toggled: boolean): void {
-		switch (this.dropperTier()) {
+	/** A click on the eyedropper, by what it picks from: the browser's own opened; the eyedropper armed on the view, or put away; the app's own pick begun, or put away; or where it is unavailable, its tooltip pinned open, or let go. */
+	private dropperClicked(picker: OpenPicker): void {
+		const widget = picker.layout.widget;
+		const tier = this.eyedropperOf(widget)?.tier;
+		if (picker.dropper.armed) {
+			this.putDropperAway();
+			return;
+		}
+		switch (tier) {
 			case 'screen':
 				this.openEyeDropper(picker);
 				break;
-			case 'frame':
-				picker.dropper.armed = !picker.dropper.armed;
+			case 'view':
+				picker.dropper.armed = true;
 				this.paintThePicker();
 				break;
-			case 'off':
-				picker.dropper.tip = !toggled;
+			case 'custom':
+				this.openCustomPick(picker, this.host.dropperOf(widget) as Extract<Eyedropper<object>, { mode: 'custom' }>);
+				break;
+			case 'unavailable':
+				picker.dropper.pinned = !picker.dropper.pinned;
 				this.paintThePicker();
 				break;
+		}
+	}
+
+	/**
+	 * Begins the app's own pick (`CustomPick`): the eyedropper drawn armed and
+	 * its tooltip shown while the app picks, each colour the app takes taken
+	 * as a named cell's is, until the app is done or the eyedropper is put
+	 * away first, which aborts the pick's signal. A pick that throws as it
+	 * begins puts the eyedropper away and throws on.
+	 */
+	private openCustomPick(picker: OpenPicker, set: Extract<Eyedropper<object>, { mode: 'custom' }>): void {
+		const abort = new AbortController();
+		picker.dropper.armed = true;
+		picker.dropper.abort = abort;
+		this.paintThePicker();
+		const take = (colour: string | null, done = false): void => {
+			if (picker.dropper.abort !== abort || this.popover !== picker) return;
+			const read = typeof colour === 'string' ? parseColour(colour) : null;
+			if (read) this.takeSampled([Math.round(read.r * 255), Math.round(read.g * 255), Math.round(read.b * 255)]);
+			if (done) {
+				picker.dropper.armed = false;
+				picker.dropper.abort = null;
+				this.paintThePicker();
+			}
+		};
+		try {
+			set.pick(take, abort.signal);
+		} catch (error) {
+			if (picker.dropper.abort === abort) this.putDropperAway();
+			throw error;
 		}
 	}
 
@@ -657,12 +766,12 @@ export class ColourPicker {
 		this.takeColour(picker.layout.widget, rgb, picker.terms.alpha);
 	}
 
-	/** Puts a picker's eyedropper away; whether anything of it was out. The browser's open one is let go of before it is aborted, so its answer finds it gone. */
+	/** Puts a picker's eyedropper away, and the tooltip a click pinned open; whether anything of it was out. The browser's open one, or the app's pick, is let go of before it is aborted, so its answer finds it gone. */
 	private dropperOff(picker: OpenPicker): boolean {
 		const { dropper } = picker;
-		const was = dropper.armed || dropper.tip || dropper.abort !== null;
+		const was = dropper.armed || dropper.abort !== null || dropper.pinned;
 		dropper.armed = false;
-		dropper.tip = false;
+		dropper.pinned = false;
 		const abort = dropper.abort;
 		dropper.abort = null;
 		abort?.abort();
@@ -716,7 +825,7 @@ export class ColourPicker {
 		this.host.closeOther();
 		const { rgb, alpha } = this.colourOf(widget);
 		const mode: PickerMode = chosenMode ?? widget.mode ?? 'wheel';
-		const picker: OpenPicker = { layout: layoutPicker(laid, this.host.width, this.host.height, this.host.measure, mode, this.tipWords()), mode, terms: termsOf(rgb, alpha), colour: rgb, old: rgb, oldAlpha: alpha, lit: null, name: ColourPicker.namedIndex(rgb), bar: 0, space: 'RGB', field: null, typed: '', entered: null, offset: { x: 0, y: 0 }, side: null, dropper: { armed: false, tip: false, abort: null } };
+		const picker: OpenPicker = { layout: this.layoutOf(laid, mode), mode, terms: termsOf(rgb, alpha), colour: rgb, old: rgb, oldAlpha: alpha, lit: null, name: ColourPicker.namedIndex(rgb), bar: 0, space: 'RGB', field: null, typed: '', entered: null, offset: { x: 0, y: 0 }, side: null, dropper: { armed: false, abort: null, pinned: false } };
 		this.popover = picker;
 		laid.state.open = true;
 		this.host.placePopover(picker.layout.box);
@@ -736,7 +845,7 @@ export class ColourPicker {
 		const { ctx, resized } = this.popoverContext(layout.box);
 		const { terms } = picker;
 		const wheel = layout.wheel ? wheelImage(wheelGeometryOf(layout.wheel, this.host.resolution), { unit: terms.unit, hue: terms.hue, base: picker.colour, saturation: terms.saturation, intensity: terms.intensity }) : null;
-		const dropper = { tier: this.dropperTier(), armed: picker.dropper.armed || picker.dropper.abort !== null, tip: this.tipShown(picker) };
+		const dropper = { armed: picker.dropper.armed || picker.dropper.abort !== null, tip: this.tipShown(picker), unavailable: this.eyedropperOf(layout.widget)?.tier === 'unavailable' };
 		paintPicker(ctx, layout, { colour: picker.colour, hex: this.host.stateOf(layout.widget).text, old: picker.old, oldAlpha: picker.oldAlpha, lit: picker.lit, name: picker.name, terms, bar: picker.bar, space: picker.space, field: picker.field, dropper }, wheel);
 		this.host.popoverPainted(resized);
 	}
@@ -785,18 +894,22 @@ export class ColourPicker {
 	}
 
 	/**
-	 * Hands a click on the open picker to the region under it: the ring, the
+	 * Hands a click on the open picker to the region under it: the
+	 * eyedropper acts by what it picks from (`dropperClicked`), and a click
+	 * anywhere else puts an armed one away, and the tooltip a click pinned
+	 * open, the tooltip's own click doing nothing more; the ring, the
 	 * triangle, the square, the hue strip and the bars set the colour at the
 	 * point, as a press does, so a click alone sets it, unless the click
-	 * follows a press that set it there already; a tab switches the mode, the
-	 * terms read afresh from the colour, and is the mode every picker on
-	 * every host opens in from then on; the close shuts the picker, the
+	 * follows a press that set it there already; a tab switches the mode,
+	 * the terms read afresh from the colour, and is the mode every picker on
+	 * every host opens in from then on; the dock button is the host's, which
+	 * pops the picker out or docks it back; the close shuts the picker, the
 	 * colour kept as it stands; a named cell and a swatch take their colour;
 	 * the old half restores the colour the picker opened on; the space word
-	 * cycles the colour space the channel fields and the bars read the colour
-	 * in, a channel field holding the page's input rewritten in the space's
-	 * units, the colour Escape puts back kept. A field does nothing on a
-	 * click: it takes the page's input as a press on it is released.
+	 * cycles the colour space the channel fields and the bars read the
+	 * colour in, a channel field holding the page's input rewritten in the
+	 * space's units, the colour Escape puts back kept. A field does nothing
+	 * on a click: it takes the page's input as a press on it is released.
 	 *
 	 * @param uv - Where the click landed on the popover's plane
 	 * @param pressed - Whether the click follows a press that set the colour at its point
@@ -809,23 +922,21 @@ export class ColourPicker {
 		const x = uv.x * box.w;
 		const y = (1 - uv.y) * box.h;
 		const region = pickerRegionAt(picker.layout, x, y, picker.terms.unit, this.tipShown(picker));
-		// The tooltip a click on the eyedropper showed, where it can pick nothing, is put away by the picker's next click.
-		const toggled = picker.dropper.tip;
-		picker.dropper.tip = false;
-		if (!region) {
-			if (toggled) this.paintThePicker();
-			return;
-		}
+		// A click anywhere on the picker but the eyedropper puts an armed one away, or the tooltip a click pinned open, as a press there does, and then works as ever: one on the tooltip, which its press left standing, or from a host that clicks without pressing.
+		if ((picker.dropper.armed || picker.dropper.pinned) && region?.kind !== 'dropper') this.putDropperAway();
+		if (!region) return;
 		switch (region.kind) {
 			case 'dropper':
-				this.dropperClicked(picker, toggled);
+				this.dropperClicked(picker);
 				return;
 			case 'tip':
-				if (toggled) this.paintThePicker();
 				return;
 			case 'tab':
 				chosenMode = picker.layout.tabs[region.index].mode;
 				this.switchMode(chosenMode);
+				break;
+			case 'dock':
+				this.host.dockClicked?.();
 				break;
 			case 'close':
 				this.close();
@@ -842,7 +953,6 @@ export class ColourPicker {
 			default:
 				if (!pressed) this.setPickerAt(region, x, y);
 		}
-		if (toggled && this.popover === picker) this.paintThePicker();
 	}
 
 	/** Switches the open picker to a mode, the colour's terms read afresh from the colour, a grey keeping the hue, and lays it out and paints it again, as far from where its layout stands it as it was carried. */
@@ -853,7 +963,7 @@ export class ColourPicker {
 		if (!laid) return;
 		picker.mode = mode;
 		picker.terms = termsKeeping(picker.colour, picker.terms.alpha, picker.terms);
-		picker.layout = carriedBy(layoutPicker(laid, this.host.width, this.host.height, this.host.measure, mode, this.tipWords()), picker.offset);
+		picker.layout = carriedBy(this.layoutOf(laid, mode), picker.offset);
 		this.host.placePopover(picker.layout.box);
 		this.paintThePicker();
 	}
@@ -928,8 +1038,8 @@ export class ColourPicker {
 			this.close();
 			return true;
 		}
-		// Escape puts an armed eyedropper, or the browser's open one, away, and leaves the picker and its colour as they stand.
-		if (key === 'Escape' && (picker.dropper.armed || picker.dropper.abort)) {
+		// Escape puts an armed eyedropper, the browser's open one, or the tooltip a click pinned open, away, and leaves the picker and its colour as they stand.
+		if (key === 'Escape' && (picker.dropper.armed || picker.dropper.abort || picker.dropper.pinned)) {
 			this.putDropperAway();
 			return true;
 		}
@@ -1110,10 +1220,32 @@ export class ColourPicker {
 	private handOff(kind: InputKind, words: string): void {
 		this.handingOff = true;
 		try {
-			pageInput().focus(kind, words, this.host.inputHost);
+			const own = this.host.fieldInput ?? null;
+			if (kind === 'field' && own) own.focus('field', words, this.host.inputHost);
+			else {
+				// Back from the host's own field input to the page's, which the colour kept.
+				if (own?.focused) own.blur();
+				pageInput().focus(kind, words, this.host.inputHost);
+			}
 		} finally {
 			this.handingOff = false;
 		}
+	}
+
+	/** The input the picker's fields are typed through: the host's own (`fieldInput`), or the page's. */
+	private get fieldInput(): PageInput {
+		return this.host.fieldInput ?? pageInput();
+	}
+
+	/** Lets the input go from the colour and its fields, as Tab past the last field does where the host has nothing after it: the host's own field input let go first, as a hand-off, then the page's. */
+	private letInputGo(): void {
+		this.handingOff = true;
+		try {
+			this.host.fieldInput?.blur();
+		} finally {
+			this.handingOff = false;
+		}
+		pageInput().blur();
 	}
 
 	/** The words a field of the open picker shows as the colour stands. */
@@ -1160,7 +1292,7 @@ export class ColourPicker {
 	private rewriteField(picker: OpenPicker): void {
 		if (!picker.field) return;
 		picker.typed = this.fieldWords(picker, picker.field);
-		pageInput().setValue(picker.typed);
+		this.fieldInput.setValue(picker.typed);
 	}
 
 	/** Writes a field's words into the page's input as the colour moves under it from outside the field, the colour as it now stands the one Escape puts back. */
@@ -1237,7 +1369,7 @@ export class ColourPicker {
 				const to = chain.findIndex((each) => sameRegion(each, field)) + (event.shiftKey ? -1 : 1);
 				if (to < 0) this.focusBody();
 				else if (to < chain.length) this.focusField(chain[to]);
-				else if (!this.host.focusAfter(widget)) pageInput().blur();
+				else if (!this.host.focusAfter(widget)) this.letInputGo();
 				return true;
 			}
 			case 'Enter':
@@ -1260,7 +1392,7 @@ export class ColourPicker {
 				const most = field.kind === 'alphaField' ? 100 : CHANNELS[picker.space][field.index];
 				const value = String(clamp(Number(this.fieldWords(picker, field)) + by, 0, most));
 				picker.typed = value;
-				pageInput().setValue(value);
+				this.fieldInput.setValue(value);
 				this.applyField(picker, value, true);
 				return true;
 			}

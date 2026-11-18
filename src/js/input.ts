@@ -132,11 +132,11 @@ export class PageInput {
 	private kind: InputKind | null = null;
 
 	/**
-	 * @param holder - The element to stand the input in: the body, for the page's input
+	 * @param holder - The element to stand the input in: the body, for the page's input, or a window's own body, the input made in its document
 	 */
 	constructor(holder: HTMLElement) {
 		this.holder = holder;
-		this.input = document.createElement('input');
+		this.input = holder.ownerDocument.createElement('input');
 		this.input.type = 'text';
 		this.wire(this.input);
 	}
@@ -189,7 +189,7 @@ export class PageInput {
 		element.addEventListener('blur', () => {
 			// The window going out of focus blurs the element and leaves it the
 			// document's focus, which it has again as the window comes back.
-			if (document.activeElement === element) return;
+			if (element.ownerDocument.activeElement === element) return;
 			const was = this.host;
 			this.host = null;
 			this.kind = null;
@@ -261,7 +261,7 @@ export class PageInput {
 		// Read by assistive technology while it has the focus, the colour's out
 		// of sight among them: the browser refuses to hide a focused element.
 		element.removeAttribute('aria-hidden');
-		if (document.activeElement !== element) element.focus({ preventScroll: true });
+		if (element.ownerDocument.activeElement !== element) element.focus({ preventScroll: true });
 		try {
 			element.setSelectionRange(value.length, value.length);
 		} catch {
@@ -274,7 +274,7 @@ export class PageInput {
 		const host = this.host;
 		this.host = null;
 		this.kind = null;
-		if (document.activeElement === this.input) this.input.blur();
+		if (this.input.ownerDocument.activeElement === this.input) this.input.blur();
 		this.stow(this.input);
 		host?.onBlur();
 	}

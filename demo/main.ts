@@ -1,16 +1,16 @@
 /**
  * @fileoverview The demo page: a colour well for each kind of colour its
- * options make, each opening its picker over the page; the Color Picker
- * dialog, opened from a button; a view of flat colours of known bytes over
- * gradients, which the wells' eyedroppers pick from; a switch of what the
- * page offers the eyedroppers; and a log of what the wells and the dialog
- * tell. It uses the picker as a page would, through its public face
- * (src/index.ts).
+ * options make, each opening the page's picker over the page or in a window
+ * of its own; the Color Picker dialog, opened from a button; a view of flat
+ * colours of known bytes over gradients, which the eyedropper picks from; a
+ * switch of the picker's eyedropper and one of where it stands; and a log of
+ * what the wells and the dialog tell. It uses the picker as a page would,
+ * through its public face (src/index.ts).
  */
-import { ColourWell, pickerShow, type ColourWellOptions, type DropperOffer, type DropperView } from '../src/index.ts';
+import { ColourWell, pagePicker, pickerShow, type ColourWellOptions, type CustomPick, type Docking, type DropperView, type Eyedropper } from '../src/index.ts';
 import './demo.css';
 
-/** One well for each kind of colour its options make. */
+/** One well for each kind of colour its options make, and one that sets its own eyedropper. */
 const WELLS: { title: string; options: ColourWellOptions }[] = [
 	{ title: 'Wheel', options: { value: '#ff8b30' } },
 	{ title: 'Alpha and Swatches', options: { value: '#2f6fd680', alpha: true, swatches: ['#ff8b30', '#2f6fd6', '#3fa34d80', '#1b1f24', '#ffffff'] } },
@@ -21,6 +21,7 @@ const WELLS: { title: string; options: ColourWellOptions }[] = [
 	{ title: 'Disabled', options: { value: '#888888', disabled: true } },
 	{ title: 'Styled', options: { value: '#c2410c', style: { fontSize: 18, borderRadius: 12, borderWidth: 2, borderColor: '#c2410c', padding: 12, accent: '#c2410c', background: '#fff7ed', color: '#7c2d12' } } },
 	{ title: 'With a Title', options: { value: '#0ea5e9', title: 'Tint' } },
+	{ title: 'Its Own Eyedropper: None', options: { value: '#d946ef', eyedropper: { mode: 'disabled' } } },
 ];
 
 const log = document.getElementById('log')!;
@@ -78,14 +79,60 @@ const VIEW: DropperView = {
 	},
 };
 
-/** What the page offers the eyedroppers, by the switch: the browser's own where it has one; the view alone; or nothing, with the note why. */
-const OFFERS: Record<string, DropperOffer> = {
-	auto: { screen: true, view: VIEW },
-	view: { screen: false, view: VIEW },
-	none: { screen: false, view: null, note: 'The page has no view to pick colours from' },
+/**
+ * The page's own pick, for the custom eyedropper: the next press on the
+ * view, its moves and its release, read by the page's own listeners rather
+ * than the picker's, each colour handed to the picker as it is read, and the
+ * last as the press is let go. Put away first, it takes its listeners down.
+ */
+const ownPick: CustomPick = (take, signal) => {
+	const hexAt = (event: PointerEvent): string | null => {
+		const rgb = VIEW.sample(event.clientX, event.clientY);
+		return rgb ? `#${rgb.map((byte) => byte.toString(16).padStart(2, '0')).join('')}` : null;
+	};
+	let pressed = false;
+	const down = (event: PointerEvent): void => {
+		pressed = true;
+		view.setPointerCapture(event.pointerId);
+		take(hexAt(event));
+	};
+	const move = (event: PointerEvent): void => {
+		if (pressed) take(hexAt(event));
+	};
+	const up = (event: PointerEvent): void => {
+		if (!pressed) return;
+		stop();
+		take(hexAt(event), true);
+		say('custom: done');
+	};
+	const stop = (): void => {
+		view.removeEventListener('pointerdown', down);
+		view.removeEventListener('pointermove', move);
+		view.removeEventListener('pointerup', up);
+		view.style.cursor = '';
+	};
+	view.addEventListener('pointerdown', down);
+	view.addEventListener('pointermove', move);
+	view.addEventListener('pointerup', up);
+	view.style.cursor = 'copy';
+	signal.addEventListener('abort', () => {
+		stop();
+		say('custom: put away');
+	});
+	say('custom: press the view');
 };
-let offer = OFFERS.auto;
-const made: ColourWell[] = [];
+
+/** The picker's eyedropper, by the switch: the screen, falling back to the view; the screen alone, unavailable in a browser with no eyedropper of its own; the view; the page's own pick; or none. */
+const EYEDROPPERS: Record<string, Eyedropper> = {
+	screen: { mode: 'screen', view: VIEW },
+	screenAlone: { mode: 'screen' },
+	view: { mode: 'view', view: VIEW },
+	custom: { mode: 'custom', pick: ownPick, tip: 'Pick a colour from the view, read by the page' },
+	disabled: { mode: 'disabled' },
+};
+
+const picker = pagePicker();
+picker.setEyedropper(EYEDROPPERS.screen);
 
 const wells = document.getElementById('wells')!;
 for (const { title, options } of WELLS) {
@@ -100,9 +147,7 @@ for (const { title, options } of WELLS) {
 			value.textContent = of.value;
 			say(`${title}: ${event}${event === 'change' ? ` ${of.value}` : ''}`);
 		},
-		dropper: offer,
 	});
-	made.push(well);
 	value.textContent = well.value;
 	figure.append(heading, well.canvas, value);
 	wells.appendChild(figure);
@@ -128,12 +173,20 @@ dialogButton.addEventListener('click', () => {
 	});
 });
 
-// The switch of what the page offers the eyedroppers, every well's at once.
-for (const input of document.querySelectorAll<HTMLInputElement>('input[name="offer"]')) {
+// The switch of the picker's eyedropper, for every well that sets none of its own.
+for (const input of document.querySelectorAll<HTMLInputElement>('input[name="eyedropper"]')) {
 	input.addEventListener('change', () => {
 		if (!input.checked) return;
-		offer = OFFERS[input.value];
-		for (const well of made) well.setDropper(offer);
-		say(`offer: ${input.value}`);
+		picker.setEyedropper(EYEDROPPERS[input.value]);
+		say(`eyedropper: ${input.value}`);
+	});
+}
+
+// The switch of where the picker stands.
+for (const input of document.querySelectorAll<HTMLInputElement>('input[name="docking"]')) {
+	input.addEventListener('change', () => {
+		if (!input.checked) return;
+		picker.setDocking(input.value as Docking);
+		say(`docking: ${input.value}`);
 	});
 }

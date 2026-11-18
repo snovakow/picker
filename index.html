@@ -11,7 +11,7 @@
 <body>
 	<main>
 		<h1>Color Picker</h1>
-		<p class="lead">The colour well and the picker it opens, with its eyedropper, and the Color Picker dialog.</p>
+		<p class="lead">The colour wells and the one picker they share, with its eyedropper, and the Color Picker dialog.</p>
 
 		<section>
 			<h2>Colour Wells</h2>
@@ -34,11 +34,23 @@
 
 		<section>
 			<h2>Eyedropper</h2>
-			<p class="note">What the page offers the wells' eyedroppers.</p>
+			<p class="note">What the picker's eyedropper picks from, for every well that sets none of its own.</p>
 			<div class="offers">
-				<label><input type="radio" name="offer" value="auto" checked> Anywhere on Screen</label>
-				<label><input type="radio" name="offer" value="view"> The View Only</label>
-				<label><input type="radio" name="offer" value="none"> No View</label>
+				<label><input type="radio" name="eyedropper" value="screen" checked> The Screen, Else the View</label>
+				<label><input type="radio" name="eyedropper" value="screenAlone"> The Screen Alone</label>
+				<label><input type="radio" name="eyedropper" value="view"> The View</label>
+				<label><input type="radio" name="eyedropper" value="custom"> The Page's Own Pick</label>
+				<label><input type="radio" name="eyedropper" value="disabled"> None</label>
+			</div>
+		</section>
+
+		<section>
+			<h2>Docking</h2>
+			<p class="note">Where the picker stands.</p>
+			<div class="offers">
+				<label><input type="radio" name="docking" value="auto" checked> In the Page, With a Pop-Out Button</label>
+				<label><input type="radio" name="docking" value="in-view"> In the Page</label>
+				<label><input type="radio" name="docking" value="popout"> In a Window of Its Own</label>
 			</div>
 		</section>
 

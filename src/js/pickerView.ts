@@ -56,18 +56,26 @@
  * past a byte, which the triangle's colour holds to 255.
  *
  * Pure: the layout is a function of the laid widget, the host's size, the
- * text measure, the mode and the eyedropper's tooltip words, every box past
- * the popover's own in the popover's pixels from its top-left corner; the
- * painter draws into the context it is given, transformed to the host's
- * pixels by the caller, the wheel as an image the caller passes, and holds
- * nothing.
+ * text measure, the mode, the eyedropper's tooltip words and the dock
+ * button, every box past the popover's own in the popover's pixels from its
+ * top-left corner; the painter draws into the context it is given,
+ * transformed to the host's pixels by the caller, the wheel as an image the
+ * caller passes, and holds nothing.
  *
  * The eyedropper takes a colour from outside the picker by the tier its host
- * offers (`DropperTier`): the browser's own eyedropper, anywhere on the
- * screen; the host's view; or none, the eyedropper drawn half as solid. Its
- * tooltip, laid out from the tier's words (`DROPPER_TIPS`) and the host's
- * note where the tier is none, stands over the picker above it, its words
- * wrapped to the picker's width, and is a region of its own while it shows.
+ * sets (`DropperTier`): the browser's own eyedropper, anywhere on the
+ * screen; a view the app provides; or the app's own pick. Set to the
+ * screen where the browser has no eyedropper of its own and there is no
+ * view to fall back to, it is unavailable: drawn half as solid, its tooltip
+ * saying where it works. Where the host sets none, the picker lays out no
+ * eyedropper, and the hex field reaches the end of its row. Its tooltip,
+ * laid out from the words it is given (`DROPPER_TIPS` by default), stands
+ * over the picker above it, its words wrapped to the picker's width, and is
+ * a region of its own while it shows.
+ *
+ * A host that can pop the picker out of its page into a window of its own,
+ * and back, has the picker show a button for it left of the close
+ * (`DockButton`).
  */
 
 import { PICKER_MODES, cssColour, type PickerMode, type ColourWidget } from './options.ts';
@@ -120,15 +128,26 @@ export const PICKER = {
 	tipPad: 6,
 } as const;
 
-/** What the eyedropper picks from, as its host offers it: anywhere on the screen, through the browser's own eyedropper; the host's view; or nothing, where neither is offered. */
-export type DropperTier = 'screen' | 'frame' | 'off';
+/** What the eyedropper picks from, as its host sets it: anywhere on the screen, through the browser's own eyedropper; a view the app provides; the app's own pick; or nothing, where it is set to the screen, the browser has no eyedropper of its own, and there is no view to fall back to. */
+export type DropperTier = 'screen' | 'view' | 'custom' | 'unavailable';
 
-/** The eyedropper's tooltip in each tier; the host's note follows the words where the tier is none, on a line of its own. */
-export const DROPPER_TIPS: Readonly<Record<DropperTier, string>> = {
+/**
+ * The eyedropper's tooltip by what it picks from, where the host gives no
+ * words of its own: the screen; a view; a view the picker fell back to
+ * because the browser has no eyedropper of its own; the app's own pick; and
+ * nothing, where the browser has no eyedropper of its own and there is no
+ * view to fall back to, which says where the eyedropper works.
+ */
+export const DROPPER_TIPS = {
 	screen: 'Pick a colour from anywhere on the screen',
-	frame: 'Pick a colour from the view. Picking from anywhere on the screen needs Chrome or Edge on a computer',
-	off: 'Eyedropper not available',
-};
+	view: 'Pick a colour from the view',
+	fallback: 'Pick a colour from the view. Picking from anywhere on the screen needs Chrome or Edge on a computer',
+	custom: 'Pick a colour',
+	unavailable: 'Picking a colour from anywhere on the screen needs Chrome or Edge on a computer',
+} as const;
+
+/** The button a host that pops the picker out of its page has it show left of its close: `popout` to pop it out into a window of its own, `dock` to bring it back into the page. */
+export type DockButton = 'popout' | 'dock';
 
 /** The colour of the tooltip's words, over its bubble in `PALETTE.tip`. */
 const TIP_WORDS = '#ffffff';
@@ -147,7 +166,7 @@ const CHOSEN_RING = 2;
 
 /** A part of the picker a point lies on: the kind, and the index of a tab, a named cell, a channel bar, a channel field or a swatch, -1 for the rest. */
 export interface Region {
-	kind: 'tab' | 'close' | 'ring' | 'triangle' | 'name' | 'square' | 'hue' | 'alpha' | 'bar' | 'old' | 'new' | 'hex' | 'dropper' | 'tip' | 'space' | 'channel' | 'alphaField' | 'swatch';
+	kind: 'tab' | 'dock' | 'close' | 'ring' | 'triangle' | 'name' | 'square' | 'hue' | 'alpha' | 'bar' | 'old' | 'new' | 'hex' | 'dropper' | 'tip' | 'space' | 'channel' | 'alphaField' | 'swatch';
 	index: number;
 }
 
@@ -185,6 +204,8 @@ export interface PickerLayout {
 	tabs: { mode: PickerMode; box: Box }[];
 	/** The close, a square at the right end of the tab row, its cross across its middle standing on the tabs' words' baseline, its right end flush with the contents' right edge; it shuts the picker. */
 	close: Box;
+	/** The button that pops the picker out into a window of its own or docks it back, a square of the tab row's height left of the close; null where its host shows none. */
+	dock: { kind: DockButton; box: Box } | null;
 	/** The mode's area. */
 	area: Box;
 	/** The wheel's square, in wheel; null in the other modes. */
@@ -202,9 +223,9 @@ export interface PickerLayout {
 	old: Box;
 	new: Box;
 	hex: Box;
-	/** The eyedropper, a field's square at the right end of the hex's row. */
-	dropper: Box;
-	/** The eyedropper's tooltip as laid out from its words: its bubble, right-aligned to the contents' right edge and standing its gap's half above the eyedropper, its words a line each, and their font; null where it was given no words. */
+	/** The eyedropper, a field's square at the right end of the hex's row; null where the host sets none. */
+	dropper: Box | null;
+	/** The eyedropper's tooltip as laid out from its words: its bubble, right-aligned to the contents' right edge and standing its gap's half above the eyedropper, its words a line each, and their font; null where there is no eyedropper. */
 	tip: { box: Box; lines: string[]; font: Font } | null;
 	/** The colour space's word, and the three channel fields. */
 	space: Box;
@@ -439,18 +460,21 @@ export const swatchColour = (layout: Pick<PickerLayout, 'swatchHexes'>, index: n
  * swatches seven to a row. A tab stands for every mode, the tabs sharing
  * the row left of the close, a square as tall as the row at its right end,
  * whose cross stands on the words' baseline with its right end flush with
- * the contents' right edge. The eyedropper is a field's square at the right
- * end of the hex's row, the hex field left of it and its gap, and its
- * tooltip, where it is given words, a bubble over the picker above it.
+ * the contents' right edge, and left of the dock button where the host shows
+ * one, a square as tall as the row beside the close. The eyedropper, where
+ * there is one, is a field's square at the right end of the hex's row, the
+ * hex field left of it and its gap, and its tooltip a bubble over the picker
+ * above it; without one, the hex field reaches the contents' right edge.
  *
  * @param laid - The colour widget, as laid out
  * @param width - The host's width in its own pixels
  * @param height - The host's height
  * @param measure - How wide a run of words is in a font, which the eyedropper's tooltip is wrapped by
  * @param mode - The mode to lay out
- * @param tip - The eyedropper's tooltip, a line break before the host's note where it has one; null for none
+ * @param tip - The eyedropper's tooltip, a line break starting another line; null for no eyedropper
+ * @param dock - The dock button the host shows; null for none
  */
-export const layoutPicker = (laid: Laid, width: number, height: number, measure: TextMeasure, mode: PickerMode, tip: string | null = null): PickerLayout => {
+export const layoutPicker = (laid: Laid, width: number, height: number, measure: TextMeasure, mode: PickerMode, tip: string | null = null, dock: DockButton | null = null): PickerLayout => {
 	const { widget, face, style } = laid;
 	const alpha = widget.alpha === true;
 	const swatchHexes = laid.state.swatches ?? widget.swatches ?? [];
@@ -471,7 +495,8 @@ export const layoutPicker = (laid: Laid, width: number, height: number, measure:
 
 	// The close's cross stands level with the tabs' words, the round cap of its stroke flush with the contents' right edge, the room under it; its square is centred on it across.
 	const close: Box = { x: PICKER.pad + innerW - PICKER.closeLine / 2 - PICKER.closeArm - PICKER.tab / 2, y: tabsY, w: PICKER.tab, h: PICKER.tab };
-	const tabW = (close.x - PICKER.gap - PICKER.pad) / PICKER_MODES.length;
+	const docked = dock ? { kind: dock, box: { x: close.x - PICKER.tab, y: tabsY, w: PICKER.tab, h: PICKER.tab } } : null;
+	const tabW = ((docked ? docked.box.x : close.x) - PICKER.gap - PICKER.pad) / PICKER_MODES.length;
 	const tabs = PICKER_MODES.map((each, i) => ({ mode: each, box: { x: PICKER.pad + i * tabW, y: tabsY, w: tabW, h: PICKER.tab } }));
 	const area: Box = { x: PICKER.pad, y: areaY, w: innerW, h: PICKER.area };
 	const alphaBar: Box | null = alpha && mode !== 'sliders' ? { x: area.x + area.w - PICKER.strip, y: area.y, w: PICKER.strip, h: area.h } : null;
@@ -497,9 +522,9 @@ export const layoutPicker = (laid: Laid, width: number, height: number, measure:
 	const half = PICKER.preview / 2;
 	const old: Box = { x: PICKER.pad, y: previewY, w: half, h: PICKER.field };
 	const current: Box = { x: PICKER.pad + half, y: previewY, w: half, h: PICKER.field };
-	const dropper: Box = { x: PICKER.pad + innerW - PICKER.field, y: previewY, w: PICKER.field, h: PICKER.field };
+	const dropper: Box | null = tip !== null ? { x: PICKER.pad + innerW - PICKER.field, y: previewY, w: PICKER.field, h: PICKER.field } : null;
 	const hexX = PICKER.pad + PICKER.preview + PICKER.gap;
-	const hex: Box = { x: hexX, y: previewY, w: dropper.x - PICKER.gap - hexX, h: PICKER.field };
+	const hex: Box = { x: hexX, y: previewY, w: (dropper ? dropper.x - PICKER.gap : PICKER.pad + innerW) - hexX, h: PICKER.field };
 	const space: Box = { x: PICKER.pad, y: channelY, w: PICKER.space, h: PICKER.field };
 	const fieldCount = alpha ? 4 : 3;
 	const fieldW = (innerW - PICKER.space - fieldCount * PICKER.gap) / fieldCount;
@@ -511,8 +536,8 @@ export const layoutPicker = (laid: Laid, width: number, height: number, measure:
 		h: PICKER.swatch,
 	}));
 	// The picker's words' font at a control's title's size.
-	const tipLaid = tip ? layoutTip(tip, titleFont(monoFont({ ...style.font, size: Math.min(style.font.size, PICKER.fontMost) })), measure, innerW, dropper) : null;
-	return { widget, box, above, mode, alpha, tabs, close, area, wheel, square, hueStrip, bars, alphaBar, names, old, new: current, hex, dropper, tip: tipLaid, space, channels: fields.slice(0, 3), alphaField: alpha ? fields[3] : null, swatches, swatchHexes, style };
+	const tipLaid = tip !== null && dropper ? layoutTip(tip, titleFont(monoFont({ ...style.font, size: Math.min(style.font.size, PICKER.fontMost) })), measure, innerW, dropper) : null;
+	return { widget, box, above, mode, alpha, tabs, close, dock: docked, area, wheel, square, hueStrip, bars, alphaBar, names, old, new: current, hex, dropper, tip: tipLaid, space, channels: fields.slice(0, 3), alphaField: alpha ? fields[3] : null, swatches, swatchHexes, style };
 };
 
 /**
@@ -562,7 +587,7 @@ export const pickerRegionAt = (layout: PickerLayout, x: number, y: number, unit:
 	};
 	const one = (kind: Region['kind'], box: Box | null): Region | null => (box && inBox(box, x, y) ? { kind, index: -1 } : null);
 	if (tipShown && layout.tip && inBox(layout.tip.box, x, y)) return { kind: 'tip', index: -1 };
-	const tab = at('tab', layout.tabs.map((each) => each.box)) ?? one('close', layout.close);
+	const tab = at('tab', layout.tabs.map((each) => each.box)) ?? one('dock', layout.dock?.box ?? null) ?? one('close', layout.close);
 	if (tab) return tab;
 	if (layout.wheel && inBox(layout.wheel, x, y)) {
 		const geometry = wheelGeometryOf(layout.wheel, 1);
@@ -683,8 +708,8 @@ export interface PickerPaintState {
 	space: ColourSpace;
 	/** The field the page's input is handed to, painted as its box alone; null for none. */
 	field: Region | null;
-	/** The eyedropper: what it picks from, whether it is armed (as it is while the browser's own eyedropper is open), and whether its tooltip shows. */
-	dropper: { tier: DropperTier; armed: boolean; tip: boolean };
+	/** The eyedropper, where it is laid out: whether it is armed (as it is while the browser's own eyedropper or the app's own pick is open), whether its tooltip shows, and whether it is unavailable, picking nothing (`DropperTier`). */
+	dropper: { armed: boolean; tip: boolean; unavailable: boolean };
 }
 
 /** Whether two colours' bytes are equal. */
@@ -745,7 +770,7 @@ const paintField = (ctx: CanvasRenderingContext2D, box: Box, words: string, layo
  * triangle and the new half are not marked. The eyedropper is painted after
  * them: a field's box with a pipette across it in the words' colour, the
  * pipette and a ring round the box in the accent while it is armed, and the
- * whole half as solid where it can pick nothing; then its tooltip while it
+ * whole half as solid where it is unavailable; then its tooltip while it
  * shows, a bubble in `PALETTE.tip` with its words in white. The tab names
  * and colour names are set in the widget's font, every other word in its
  * monospaced version (`pickerMono`), no larger than `PICKER.fontMost`, the
@@ -779,7 +804,8 @@ export const paintPicker = (ctx: CanvasRenderingContext2D, layout: PickerLayout,
 		const active = tab.mode === layout.mode;
 		drawCentred(ctx, MODE_WORDS[tab.mode], tab.box, font, 'CENTER', active || lit('tab', i) ? accent : words);
 		if (active) {
-			const reach = ctx.measureText(MODE_WORDS[tab.mode]).width / 2 + PICKER.tabRoom;
+			// No further than its own tab, which the dock button narrows.
+			const reach = Math.min(ctx.measureText(MODE_WORDS[tab.mode]).width / 2 + PICKER.tabRoom, tab.box.w / 2);
 			const mid = tab.box.x + tab.box.w / 2;
 			ctx.fillStyle = accent;
 			ctx.fillRect(mid - reach, foot - PICKER.tabLine, 2 * reach, PICKER.tabLine);
@@ -805,6 +831,7 @@ export const paintPicker = (ctx: CanvasRenderingContext2D, layout: PickerLayout,
 	ctx.moveTo(cx + PICKER.closeArm, crossTop);
 	ctx.lineTo(cx - PICKER.closeArm, crossFoot);
 	ctx.stroke();
+	if (layout.dock) paintDock(ctx, layout.dock, crossTop, crossFoot, lit('dock') ? accent : words);
 	ctx.lineCap = 'butt';
 
 	if (layout.wheel && wheel) ctx.drawImage(wheel, layout.wheel.x, layout.wheel.y, layout.wheel.w, layout.wheel.h);
@@ -932,9 +959,44 @@ export const paintPicker = (ctx: CanvasRenderingContext2D, layout: PickerLayout,
 			strokeInside(ctx, square, CONTROL.iconRadius, chosen ? CHOSEN_RING : CONTROL.border);
 		}
 	});
-	paintDropper(ctx, layout, state.dropper, lit('dropper'), words, accent);
-	if (state.dropper.tip && layout.tip) paintTip(ctx, layout.tip);
+	if (layout.dropper) {
+		paintDropper(ctx, layout, layout.dropper, state.dropper, lit('dropper'), words, accent);
+		if (state.dropper.tip && layout.tip) paintTip(ctx, layout.tip);
+	}
 	ctx.restore();
+};
+
+/**
+ * Paints the dock button, its mark as tall as the close's cross and standing
+ * on the same baseline, in its stroke: a window, its top-right corner left
+ * open, with an arrow through the gap, out of it to pop the picker out, or
+ * into it to dock it back.
+ */
+const paintDock = (ctx: CanvasRenderingContext2D, dock: NonNullable<PickerLayout['dock']>, top: number, foot: number, ink: string): void => {
+	const size = foot - top;
+	const left = dock.box.x + (dock.box.w - size) / 2;
+	const right = left + size;
+	const open = size / 2;
+	ctx.strokeStyle = ink;
+	ctx.beginPath();
+	// The window, open at its top-right corner.
+	ctx.moveTo(right - open, top);
+	ctx.lineTo(left, top);
+	ctx.lineTo(left, foot);
+	ctx.lineTo(right, foot);
+	ctx.lineTo(right, top + open);
+	// The arrow from the window's middle through the gap, its head at the end it points to.
+	const mid = { x: left + size / 2, y: top + size / 2 };
+	const corner = { x: right + 1, y: top - 1 };
+	const [from, to] = dock.kind === 'popout' ? [mid, corner] : [corner, mid];
+	const head = size / 3;
+	const towards = Math.sign(to.x - from.x);
+	ctx.moveTo(from.x, from.y);
+	ctx.lineTo(to.x, to.y);
+	ctx.moveTo(to.x - towards * head, to.y);
+	ctx.lineTo(to.x, to.y);
+	ctx.lineTo(to.x, to.y + towards * head);
+	ctx.stroke();
 };
 
 /**
@@ -942,13 +1004,12 @@ export const paintPicker = (ctx: CanvasRenderingContext2D, layout: PickerLayout,
  * where it can pick, with a pipette across its diagonal, the tube from the
  * tip at the lower left to the collar across it and the bulb beyond, in the
  * words' colour, the pipette and a ring round the box in the accent while it
- * is armed; the whole half as solid where it can pick nothing.
+ * is armed; the whole half as solid where it is unavailable.
  */
-const paintDropper = (ctx: CanvasRenderingContext2D, layout: PickerLayout, dropper: PickerPaintState['dropper'], lit: boolean, words: string, accent: string): void => {
-	const box = layout.dropper;
+const paintDropper = (ctx: CanvasRenderingContext2D, layout: PickerLayout, box: Box, dropper: PickerPaintState['dropper'], lit: boolean, words: string, accent: string): void => {
 	ctx.save();
-	if (dropper.tier === 'off') ctx.globalAlpha *= PALETTE.disabled;
-	paintField(ctx, box, '', layout, lit && dropper.tier !== 'off', words);
+	if (dropper.unavailable) ctx.globalAlpha *= PALETTE.disabled;
+	paintField(ctx, box, '', layout, lit && !dropper.unavailable, words);
 	const ink = dropper.armed ? accent : words;
 	// In the field's own units: one to a pixel at the field's height.
 	const unit = box.h / PICKER.field;

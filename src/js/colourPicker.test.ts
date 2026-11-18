@@ -6,7 +6,8 @@
  * standing on it, pressed, moved, released, clicked and hovered, and the
  * page's input handed to it. The picker is opened in the mode last chosen on
  * any picker's tabs, pressed, dragged, carried, clicked, keyed and shut, its
- * wheel's renderer a stand-in that records each draw, and its fields given
+ * wheel's renderer a stand-in that records each draw, its painter its own
+ * recording the eyedropper each paint draws, and its fields given
  * the page's input in turn, typed into, stepped, walked by Tab and left.
  * jsdom has no 2D context, so a canvas is given one that does nothing, every
  * measure 0. The stand-in host stands the picker at the box it is laid out
@@ -32,8 +33,23 @@ vi.mock('./wheel.ts', async (importOriginal) => {
 	};
 });
 
-import { ColourPicker, forgetChosenMode, type DropperOffer, type PickerHost } from './colourPicker.ts';
-import { DROPPER_TIPS, barShare, channelsOf, wheelGeometryOf, type PickerLayout } from './pickerView.ts';
+/** The eyedropper as each paint of the picker drew it: armed, its tooltip shown, and unavailable. */
+const dropperPaints = vi.hoisted(() => [] as { armed: boolean; tip: boolean; unavailable: boolean }[]);
+
+// The picker's painter stays the module's own, each eyedropper it is asked to draw recorded.
+vi.mock('./pickerView.ts', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./pickerView.ts')>();
+	return {
+		...actual,
+		paintPicker: (...args: Parameters<typeof actual.paintPicker>) => {
+			dropperPaints.push({ ...args[2].dropper });
+			actual.paintPicker(...args);
+		},
+	};
+});
+
+import { ColourPicker, forgetChosenMode, type Eyedropper, type PickerHost } from './colourPicker.ts';
+import { DRAGGED_REGIONS, DROPPER_TIPS, barShare, channelsOf, pickerRegionAt, wheelGeometryOf, type DockButton, type PickerLayout } from './pickerView.ts';
 import { readColourOptions, swatchesOf, type ColourOptions, type ColourWidget, type WidgetEvent } from './options.ts';
 import { pageInput, pageInputMade, resetPageInput, type InputHost, type InputLook } from './input.ts';
 import { PALETTE, fieldLine, fieldRadius, fontFamilies } from './paint.ts';
@@ -53,6 +69,7 @@ const inertContext = () => new Proxy<Record<string | symbol, unknown>>({ globalA
 });
 
 beforeEach(() => {
+	dropperPaints.length = 0;
 	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as unknown as CanvasRenderingContext2D);
 });
 
@@ -91,6 +108,9 @@ const closeOtherPickers = (except: TestPanel | null = null): void => {
 /** The colour widget a stand-in host holds, with the id the host names it by. */
 type Hosted = ColourWidget & { id: string };
 
+/** The stand-in host's own view, which the eyedropper picks from as a 3D host's scene: the host takes the presses on it and hands the picker the colour under them. */
+const OWN_VIEW = { scene: 'the stand-in host\'s own' };
+
 /** A widget of the stand-in host beside its colour, which a press and a click land on: where it stands, and whether it is a field the focus walks to by Tab. */
 interface Other {
 	id: string;
@@ -118,8 +138,11 @@ class TestPanel implements PickerHost, InputHost {
 	readonly resolution: number;
 	readonly measure = (): number => 0;
 	onEvent: ((widget: string, event: string) => void) | null = null;
-	/** What it offers the eyedropper: by default nothing, the stand-in having no view. */
-	dropper: DropperOffer = { screen: false, view: null, note: 'The stand-in host lacks a view' };
+	/** The eyedropper it sets: by default one that picks from its own view, as a 3D host's scene, whose presses it takes itself and hands the colour under them to the picker (`takeDropped`). */
+	eyedropper: Eyedropper<object> = { mode: 'view', view: OWN_VIEW };
+	/** The dock button it has the picker show, none by default, and how many times it was clicked. */
+	dockButton: DockButton | null = null;
+	dockClicks = 0;
 	private readonly state: WidgetState;
 	/** Where the host lays its colour out, and whether it shows it. */
 	private readonly at: { x: number; y: number };
@@ -217,10 +240,24 @@ class TestPanel implements PickerHost, InputHost {
 		this.picker.close();
 	}
 
-	/** Changes what the stand-in host offers the eyedropper, the picker reading it afresh. */
-	setDropper(offer: DropperOffer): void {
-		this.dropper = offer;
+	dropperOf(_widget: ColourWidget): Eyedropper<object> {
+		return this.eyedropper;
+	}
+
+	/** Changes the eyedropper the stand-in host sets, the picker reading it afresh. */
+	setEyedropper(eyedropper: Eyedropper<object>): void {
+		this.eyedropper = eyedropper;
 		this.picker.dropperChanged();
+	}
+
+	/** Changes the dock button it has the picker show, the picker laid out again. */
+	setDockButton(dock: DockButton | null): void {
+		this.dockButton = dock;
+		this.picker.relay();
+	}
+
+	dockClicked(): void {
+		this.dockClicks++;
 	}
 
 	/** Whether the picker's eyedropper is armed on the host's view. */
@@ -1724,10 +1761,14 @@ describe('a colour\'s picker', () => {
 	});
 
 	describe('its eyedropper', () => {
-		/** A view a host offers, its colour read by the host, here by the test. */
+		/** A page's view, its colour read by the host, here by the test. */
 		const VIEW = { element: document.createElement('div'), sample: (): Rgb => [0, 0, 0] };
 		/** The open picker's eyedropper. */
-		const dropperOf = (panel: TestPanel) => (pickerOf(panel) as unknown as { dropper: { armed: boolean; tip: boolean; abort: AbortController | null } }).dropper;
+		const dropperOf = (panel: TestPanel) => (pickerOf(panel) as unknown as { dropper: { armed: boolean; abort: AbortController | null; pinned: boolean } }).dropper;
+		/** The eyedropper as the picker was last painted. */
+		const painted = () => dropperPaints.at(-1)!;
+		/** The middle of the open picker's eyedropper. */
+		const dropperAt = (panel: TestPanel) => centre(pickerOf(panel)!.layout.dropper!);
 		/** The browser's own eyedropper, a stand-in each open of which the test answers. */
 		const browserEyeDropper = () => {
 			const opened: { signal: AbortSignal | undefined; resolve: (answer: { sRGBHex: string }) => void; reject: (error: unknown) => void }[] = [];
@@ -1742,6 +1783,14 @@ describe('a colour\'s picker', () => {
 			Object.defineProperty(window, 'EyeDropper', { value: EyeDropper, configurable: true });
 			return opened;
 		};
+		/** The app's own pick, a stand-in that keeps each pick's take and signal for the test to answer. */
+		const appPick = () => {
+			const picks: { take: (colour: string | null, done?: boolean) => void; signal: AbortSignal }[] = [];
+			const pick = (take: (colour: string | null, done?: boolean) => void, signal: AbortSignal): void => {
+				picks.push({ take, signal });
+			};
+			return { picks, pick };
+		};
 		/** Lets the answers given settle. */
 		const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -1749,11 +1798,11 @@ describe('a colour\'s picker', () => {
 			delete (window as unknown as { EyeDropper?: unknown }).EyeDropper;
 		});
 
-		it('arms on a click where the host offers its view and the browser has no eyedropper of its own, takes each colour its host reads under the press as a named cell\'s, the alpha kept, telling change, and is put away as the press is let go, or by a second click', () => {
+		it('picks from the host\'s own view: armed by a click, it takes each colour the host reads under the press as a named cell\'s, the alpha kept, telling change, and is put away as the press is let go, or by a second click', () => {
 			const { panel, told, open } = coloured({ alpha: true, value: '#ff8b3080' });
-			panel.setDropper({ screen: true, view: VIEW });
 			open();
-			const dropper = centre(pickerOf(panel)!.layout.dropper);
+			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.view);
+			const dropper = dropperAt(panel);
 			clickOn(panel, dropper);
 			expect(panel.dropping).toBe(true);
 			told.length = 0;
@@ -1776,16 +1825,16 @@ describe('a colour\'s picker', () => {
 			expect(pickerOf(panel)!.terms.alpha).toBeCloseTo(0x80 / 255, 9);
 		});
 
-		it('shows its tooltip with its tier\'s words while the pointer is over it or the tooltip, and while it is armed, standing over what lies under it', () => {
+		it('shows its tooltip with its mode\'s words or the host\'s own while the pointer is over it or the tooltip, and while it is armed, standing over what lies under it', () => {
 			const { panel, open } = coloured({});
-			panel.setDropper({ screen: false, view: VIEW });
+			panel.setEyedropper({ mode: 'view', view: VIEW, tip: 'Pick a colour from the feed' });
 			open();
 			const layout = pickerOf(panel)!.layout;
-			expect(layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.frame);
+			expect(layout.tip!.lines.join(' ')).toBe('Pick a colour from the feed');
 			const over = centre(layout.tip!.box);
 			hoverOn(panel, over);
 			expect(pickerOf(panel)!.lit).not.toEqual({ kind: 'tip', index: -1 });
-			hoverOn(panel, centre(layout.dropper));
+			hoverOn(panel, centre(layout.dropper!));
 			expect(pickerOf(panel)!.lit).toEqual({ kind: 'dropper', index: -1 });
 			hoverOn(panel, over);
 			expect(pickerOf(panel)!.lit).toEqual({ kind: 'tip', index: -1 });
@@ -1793,23 +1842,25 @@ describe('a colour\'s picker', () => {
 			hoverOn(panel, over);
 			expect(pickerOf(panel)!.lit).not.toEqual({ kind: 'tip', index: -1 });
 			// Armed, it shows with the pointer anywhere, a touch having none over it.
-			clickOn(panel, centre(layout.dropper));
+			clickOn(panel, centre(layout.dropper!));
 			hoverOn(panel, centre(layout.hex));
 			hoverOn(panel, over);
 			expect(pickerOf(panel)!.lit).toEqual({ kind: 'tip', index: -1 });
+			// Words that are blank give the mode's own.
+			panel.setEyedropper({ mode: 'view', view: VIEW, tip: ' ' });
+			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.view);
 		});
 
-		it('is put away by a press anywhere else on the picker, which then works as ever, by Escape, which leaves the picker and its colour as they stand', () => {
+		it('is put away by a press anywhere else on the picker, which then works as ever, and by Escape, which leaves the picker and its colour as they stand', () => {
 			const { panel, open } = coloured({});
-			panel.setDropper({ screen: false, view: VIEW });
 			open();
 			const layout = pickerOf(panel)!.layout;
-			clickOn(panel, centre(layout.dropper));
+			clickOn(panel, centre(layout.dropper!));
 			pressRelease(panel, centre(layout.hex));
 			expect(panel.dropping).toBe(false);
 			expect(pickerOf(panel)!.field).toEqual({ kind: 'hex', index: -1 });
 			key('Escape');
-			clickOn(panel, centre(layout.dropper));
+			clickOn(panel, centre(layout.dropper!));
 			panel.takeDropped([0, 0, 255], false);
 			key('Escape');
 			expect(panel.dropping).toBe(false);
@@ -1817,18 +1868,18 @@ describe('a colour\'s picker', () => {
 			expect(panel.get('c', 'value')).toBe('#0000ff');
 		});
 
-		it('opens the browser\'s own eyedropper inside the click where the browser has one and the host lets it be used, drawn armed while it is open, and takes the colour it picks as a named cell\'s, the alpha kept', async () => {
+		it('opens the browser\'s own eyedropper on the screen inside the click where the browser has one, drawn armed while it is open, and takes the colour it picks as a named cell\'s, the alpha kept', async () => {
 			const opened = browserEyeDropper();
 			const { panel, told, open } = coloured({ alpha: true, value: '#ff8b3080' });
-			panel.setDropper({ screen: true, view: VIEW });
+			panel.setEyedropper({ mode: 'screen', view: OWN_VIEW });
 			open();
 			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.screen);
-			clickOn(panel, centre(pickerOf(panel)!.layout.dropper));
+			clickOn(panel, dropperAt(panel));
 			expect(opened).toHaveLength(1);
 			expect(dropperOf(panel).abort).not.toBeNull();
 			expect(panel.dropping).toBe(false);
 			// A second click while it is open opens no other.
-			clickOn(panel, centre(pickerOf(panel)!.layout.dropper));
+			clickOn(panel, dropperAt(panel));
 			expect(opened).toHaveLength(1);
 			told.length = 0;
 			opened[0].resolve({ sRGBHex: '#3366CC' });
@@ -1838,58 +1889,246 @@ describe('a colour\'s picker', () => {
 			expect(dropperOf(panel).abort).toBeNull();
 		});
 
-		it('takes nothing where the browser\'s eyedropper is escaped, put away by Escape or shut under, and opens none where the host withholds it, arming on its view instead', async () => {
+		it('takes nothing where the browser\'s eyedropper is escaped, put away by Escape or shut under, and opens none in view mode, arming on its view though the browser has one', async () => {
 			const opened = browserEyeDropper();
 			const { panel, open } = coloured({});
-			panel.setDropper({ screen: true, view: VIEW });
+			panel.setEyedropper({ mode: 'screen' });
 			open();
-			const dropper = () => centre(pickerOf(panel)!.layout.dropper);
-			clickOn(panel, dropper());
+			clickOn(panel, dropperAt(panel));
 			opened[0].reject(new DOMException('The eyedropper was cancelled', 'AbortError'));
 			await settled();
 			expect(panel.get('c', 'value')).toBe('#ff8b30');
 			expect(dropperOf(panel).abort).toBeNull();
 			// Put away by Escape, the picker kept open.
-			clickOn(panel, dropper());
+			clickOn(panel, dropperAt(panel));
 			key('Escape');
 			expect(opened[1].signal!.aborted).toBe(true);
 			expect(panel.openColor?.id).toBe('c');
 			// Shut under it, it is aborted and takes nothing.
-			clickOn(panel, dropper());
+			clickOn(panel, dropperAt(panel));
 			panel.closePicker();
 			expect(opened[2].signal!.aborted).toBe(true);
 			opened[2].resolve({ sRGBHex: '#000000' });
 			await settled();
 			expect(panel.get('c', 'value')).toBe('#ff8b30');
-			// A host that withholds the browser's arms on its view.
-			panel.setDropper({ screen: false, view: VIEW });
+			// In view mode it arms on the view.
+			panel.setEyedropper({ mode: 'view', view: OWN_VIEW });
 			open();
-			clickOn(panel, dropper());
+			clickOn(panel, dropperAt(panel));
 			expect(opened).toHaveLength(3);
 			expect(panel.dropping).toBe(true);
 		});
 
-		it('gives "Eyedropper not available" with the host\'s note where it picks nothing, shown by a click on it until the picker\'s next click, and reads the offer afresh as it changes, an armed one put away', () => {
+		it('falls back to the view given beside the screen where the browser has no eyedropper of its own, saying so, and with no view either is unavailable, saying where it works', () => {
 			const { panel, open } = coloured({});
+			panel.setEyedropper({ mode: 'screen', view: OWN_VIEW });
+			open();
+			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.fallback);
+			expect(painted().unavailable).toBe(false);
+			clickOn(panel, dropperAt(panel));
+			expect(panel.dropping).toBe(true);
+			panel.setEyedropper({ mode: 'screen' });
+			expect(panel.dropping).toBe(false);
+			expect(pickerOf(panel)!.layout.dropper).not.toBeNull();
+			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.unavailable);
+			expect(painted()).toEqual({ armed: false, tip: false, unavailable: true });
+			// Where the browser has one, the screen alone.
+			browserEyeDropper();
+			panel.setEyedropper({ mode: 'screen' });
+			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.screen);
+			expect(painted().unavailable).toBe(false);
+		});
+
+		it('is drawn unavailable where it is set to the screen, the browser has no eyedropper of its own and no view is given, its tooltip shown while the pointer is over it and pinned open by a click on it, which picks nothing, until a second click, a press or click anywhere else on the picker, Escape, or the eyedropper changing', () => {
+			const { panel, told, open } = coloured({});
+			panel.setEyedropper({ mode: 'screen' });
 			open();
 			const layout = pickerOf(panel)!.layout;
-			expect(layout.tip!.lines).toEqual(['Eyedropper not available', 'The stand-in host lacks a view']);
-			clickOn(panel, centre(layout.dropper));
-			expect(dropperOf(panel).tip).toBe(true);
+			const dropper = centre(layout.dropper!);
+			expect(painted()).toEqual({ armed: false, tip: false, unavailable: true });
+			// The pointer over it shows its tooltip, and off it puts it away.
+			hoverOn(panel, dropper);
+			expect(painted().tip).toBe(true);
+			hoverOn(panel, centre(layout.hex));
+			expect(painted().tip).toBe(false);
+			// A click pins the tooltip open with the pointer anywhere, as a touch's does, and picks nothing.
+			told.length = 0;
+			clickOn(panel, dropper);
+			expect(painted()).toEqual({ armed: false, tip: true, unavailable: true });
+			expect(dropperOf(panel)).toEqual({ armed: false, abort: null, pinned: true });
 			expect(panel.dropping).toBe(false);
-			clickOn(panel, [5, 5]);
-			expect(dropperOf(panel).tip).toBe(false);
-			clickOn(panel, centre(layout.dropper));
-			clickOn(panel, centre(layout.dropper));
-			expect(dropperOf(panel).tip).toBe(false);
-			// Offered a view: its words, and it arms.
-			panel.setDropper({ screen: false, view: VIEW });
-			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.frame);
-			clickOn(panel, centre(layout.dropper));
+			expect(told).toEqual([]);
+			// A second click lets it go.
+			clickOn(panel, dropper);
+			expect(painted().tip).toBe(false);
+			// So does a press anywhere else on the picker, which then works as ever.
+			clickOn(panel, dropper);
+			pressRelease(panel, centre(layout.hex));
+			expect(painted().tip).toBe(false);
+			expect(pickerOf(panel)!.field).toEqual({ kind: 'hex', index: -1 });
+			key('Escape');
+			// And a click anywhere else, from a host that clicks without pressing first.
+			clickOn(panel, dropper);
+			clickOn(panel, centre(layout.old));
+			expect(painted().tip).toBe(false);
+			// And Escape, which leaves the picker open.
+			clickOn(panel, dropper);
+			key('Escape');
+			expect(painted().tip).toBe(false);
+			expect(panel.openColor?.id).toBe('c');
+			// And the eyedropper changing.
+			clickOn(panel, dropper);
+			panel.setEyedropper({ mode: 'screen' });
+			expect(dropperOf(panel).pinned).toBe(false);
+			expect(painted().tip).toBe(false);
+			expect(panel.get('c', 'value')).toBe('#ff8b30');
+		});
+
+		it('leaves its tooltip standing under a press on it for the click after, which a touch has no pointer over to find it by: the click puts an armed eyedropper away, or the tooltip a click pinned open, and clicks nothing under it', () => {
+			const { panel, open } = coloured({ mode: 'square' });
+			open();
+			for (const set of [{ mode: 'view', view: OWN_VIEW }, { mode: 'screen' }] as const) {
+				panel.setEyedropper(set);
+				const layout = pickerOf(panel)!.layout;
+				const tip = centre(layout.tip!.box);
+				// Under the tooltip, what sets the colour at a click's point.
+				expect(DRAGGED_REGIONS).toContain(pickerRegionAt(layout, ...tip, pickerOf(panel)!.terms.unit)?.kind);
+				clickOn(panel, dropperAt(panel));
+				pressRelease(panel, tip);
+				expect(dropperOf(panel)).toMatchObject(set.mode === 'view' ? { armed: true } : { pinned: true });
+				clickOn(panel, tip);
+				expect(dropperOf(panel)).toEqual({ armed: false, abort: null, pinned: false });
+				expect(painted().tip).toBe(false);
+				expect(panel.get('c', 'value')).toBe('#ff8b30');
+			}
+		});
+
+		it('shows none where it is disabled or set in a mode that does not read, and reads the eyedropper afresh as it changes, one armed on a view staying armed on another view and put away otherwise', () => {
+			const { panel, open } = coloured({});
+			open();
+			const was = dropperAt(panel);
+			clickOn(panel, was);
 			expect(panel.dropping).toBe(true);
-			panel.setDropper({ screen: false, view: null, note: 'The page has no view to pick colours from' });
+			panel.setEyedropper({ mode: 'view', view: VIEW });
+			expect(panel.dropping).toBe(true);
+			panel.setEyedropper({ mode: 'disabled' });
 			expect(panel.dropping).toBe(false);
-			expect(pickerOf(panel)!.layout.tip!.lines).toEqual(['Eyedropper not available', 'The page has no view to pick colours from']);
+			expect(pickerOf(panel)!.layout.dropper).toBeNull();
+			// Where the eyedropper stood is the hex field's.
+			hoverOn(panel, was);
+			expect(pickerOf(panel)!.lit).toEqual({ kind: 'hex', index: -1 });
+			for (const unread of [{ mode: 'sideways' }, { mode: 'view' }, { mode: 'custom' }, null]) {
+				panel.setEyedropper(unread as unknown as Eyedropper<object>);
+				expect(pickerOf(panel)!.layout.dropper).toBeNull();
+			}
+			panel.setEyedropper({ mode: 'view', view: OWN_VIEW });
+			expect(pickerOf(panel)!.layout.dropper).not.toBeNull();
+			expect(panel.dropping).toBe(false);
+		});
+
+		it('hands the app\'s own pick a take and a signal in custom mode, drawn armed with its tooltip while the app picks, each colour taken as a named cell\'s, the alpha kept, telling change, until the app is done', () => {
+			const { picks, pick } = appPick();
+			const { panel, told, open } = coloured({ alpha: true, value: '#ff8b3080' });
+			panel.setEyedropper({ mode: 'custom', pick, tip: 'Pick a colour from the camera' });
+			open();
+			const layout = pickerOf(panel)!.layout;
+			expect(layout.tip!.lines.join(' ')).toBe('Pick a colour from the camera');
+			clickOn(panel, dropperAt(panel));
+			expect(picks).toHaveLength(1);
+			expect(dropperOf(panel).armed).toBe(true);
+			// No view of the host's takes its presses, and the tooltip shows with the pointer anywhere.
+			expect(panel.dropping).toBe(false);
+			hoverOn(panel, centre(layout.tip!.box));
+			expect(pickerOf(panel)!.lit).toEqual({ kind: 'tip', index: -1 });
+			told.length = 0;
+			picks[0].take('#123456');
+			expect(panel.get('c', 'value')).toBe('#12345680');
+			expect(told).toEqual(['c:change', 'root:change']);
+			// What does not read takes nothing, nor does none; the same colour again tells nothing.
+			picks[0].take('reddish');
+			picks[0].take(null);
+			picks[0].take('#123456');
+			expect(told).toHaveLength(2);
+			picks[0].take('#654321', true);
+			expect(panel.get('c', 'value')).toBe('#65432180');
+			expect(dropperOf(panel).armed).toBe(false);
+			expect(picks[0].signal.aborted).toBe(false);
+			// Done, it takes nothing more.
+			picks[0].take('#000000');
+			expect(panel.get('c', 'value')).toBe('#65432180');
+			// Taken by its bytes: an alpha the app's colour carries is not the colour's.
+			clickOn(panel, dropperAt(panel));
+			picks[1].take('#00ff0011', true);
+			expect(panel.get('c', 'value')).toBe('#00ff0080');
+			// Done taking none, the colour stays.
+			clickOn(panel, dropperAt(panel));
+			picks[2].take(null, true);
+			expect(dropperOf(panel).armed).toBe(false);
+			expect(panel.get('c', 'value')).toBe('#00ff0080');
+		});
+
+		it('aborts the app\'s pick where the eyedropper is put away first, by a second click, a press anywhere else on the picker, Escape, a change of eyedropper or the picker shutting, and takes nothing after', () => {
+			const { picks, pick } = appPick();
+			const { panel, open } = coloured({});
+			panel.setEyedropper({ mode: 'custom', pick });
+			open();
+			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.custom);
+			clickOn(panel, dropperAt(panel));
+			clickOn(panel, dropperAt(panel));
+			expect(picks).toHaveLength(1);
+			expect(picks[0].signal.aborted).toBe(true);
+			expect(dropperOf(panel).armed).toBe(false);
+			picks[0].take('#000000', true);
+			expect(panel.get('c', 'value')).toBe('#ff8b30');
+			// A press elsewhere on the picker, which then works as ever.
+			clickOn(panel, dropperAt(panel));
+			pressRelease(panel, centre(pickerOf(panel)!.layout.hex));
+			expect(picks[1].signal.aborted).toBe(true);
+			expect(pickerOf(panel)!.field).toEqual({ kind: 'hex', index: -1 });
+			key('Escape');
+			// Escape, the picker kept open.
+			clickOn(panel, dropperAt(panel));
+			key('Escape');
+			expect(picks[2].signal.aborted).toBe(true);
+			expect(panel.openColor?.id).toBe('c');
+			// A change of eyedropper.
+			clickOn(panel, dropperAt(panel));
+			panel.setEyedropper({ mode: 'custom', pick });
+			expect(picks[3].signal.aborted).toBe(true);
+			// The picker shutting.
+			clickOn(panel, dropperAt(panel));
+			panel.closePicker();
+			expect(picks[4].signal.aborted).toBe(true);
+			picks[4].take('#000000', true);
+			expect(panel.get('c', 'value')).toBe('#ff8b30');
+		});
+
+		it('puts the eyedropper away and throws on where the app\'s pick throws as it begins', () => {
+			const { panel, open } = coloured({});
+			panel.setEyedropper({ mode: 'custom', pick: () => { throw new Error('no camera'); } });
+			open();
+			expect(() => clickOn(panel, dropperAt(panel))).toThrow('no camera');
+			expect(dropperOf(panel)).toEqual({ armed: false, abort: null, pinned: false });
+			expect(panel.openColor?.id).toBe('c');
+		});
+	});
+
+	describe('its dock button', () => {
+		it('shows the dock button its host gives left of the close, none where it gives none, and hands its click to the host', () => {
+			const { panel, open } = coloured({});
+			open();
+			expect(pickerOf(panel)!.layout.dock).toBeNull();
+			panel.setDockButton('popout');
+			const layout = pickerOf(panel)!.layout;
+			expect(layout.dock!.kind).toBe('popout');
+			clickOn(panel, centre(layout.dock!.box));
+			expect(panel.dockClicks).toBe(1);
+			expect(panel.openColor?.id).toBe('c');
+			panel.setDockButton('dock');
+			expect(pickerOf(panel)!.layout.dock!.kind).toBe('dock');
+			panel.setDockButton(null);
+			expect(pickerOf(panel)!.layout.dock).toBeNull();
+			expect(panel.dockClicks).toBe(1);
 		});
 	});
 });

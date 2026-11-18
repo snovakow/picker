@@ -12,7 +12,7 @@ import { CONTROL, POPOVER_MARGIN, layoutWell, restingState, type Font, type Laid
 import { PALETTE } from './paint.ts';
 import { CHANNELS, SWATCHES, hslToHsv, hsvToHsl, hsvToRgb, isLightSwatch, rgbToHsl, rgbToHsv } from './colour.ts';
 import { hueOfAngle, saturatedOf, triangleColour, triangleOf, unitOfHue, type Rgb } from './wheel.ts';
-import { HUE_STOPS, PICKER, barShare, barStops, byteAt, channelsOf, colourAtRegion, fieldBox, fieldChain, fieldText, layoutPicker, paintPicker, pickerRegionAt, squareColour, termsAtSquare, termsKeeping, termsOf, termsWithChannel, wheelGeometryOf, withSquare, type PickerLayout, type PickerPaintState, type Region } from './pickerView.ts';
+import { DROPPER_TIPS, HUE_STOPS, PICKER, barShare, barStops, byteAt, channelsOf, colourAtRegion, fieldBox, fieldChain, fieldText, layoutPicker, paintPicker, pickerRegionAt, squareColour, termsAtSquare, termsKeeping, termsOf, termsWithChannel, wheelGeometryOf, withSquare, type DockButton, type PickerLayout, type PickerPaintState, type Region } from './pickerView.ts';
 
 const measure = (text: string, font: Font) => text.length * font.size / 2;
 
@@ -25,9 +25,10 @@ const laidOf = ({ x = 10, y = 20, ...options }: Placed = {}): Laid => {
 	return layoutWell(read, restingState(read), measure, { x, y });
 };
 
-const open = (widget: Placed = {}, mode: 'wheel' | 'square' | 'sliders' | 'names' = 'wheel', width = 400, height = 500, tip: string | null = null): PickerLayout => {
+/** A colour's picker laid out in a mode on a host of a size, with an eyedropper whose tooltip is "Pick a colour" unless the case gives other words or none, and the dock button the case gives. */
+const open = (widget: Placed = {}, mode: 'wheel' | 'square' | 'sliders' | 'names' = 'wheel', width = 400, height = 500, tip: string | null = DROPPER_TIPS.custom, dock: DockButton | null = null): PickerLayout => {
 	const laid = laidOf(widget);
-	return layoutPicker(laid, width, height, measure, mode, tip);
+	return layoutPicker(laid, width, height, measure, mode, tip, dock);
 };
 
 /** The height of a picker with a number of swatch rows. */
@@ -71,16 +72,41 @@ describe('layoutPicker', () => {
 		expect(layout.names).toEqual([]);
 		expect(layout.old).toEqual({ x: 10, y: 230, w: 28, h: 30 });
 		expect(layout.new).toEqual({ x: 38, y: 230, w: 28, h: 30 });
-		// The hex field left of the eyedropper, a field's square at the row's right end, and its gap.
+		// The hex field left of the eyedropper, a field's square at the row's right end, and its gap; no dock button.
 		expect(layout.hex).toEqual({ x: 74, y: 230, w: 166, h: 30 });
 		expect(layout.dropper).toEqual({ x: 248, y: 230, w: 30, h: 30 });
-		expect(layout.tip).toBeNull();
+		expect(layout.tip!.lines).toEqual(['Pick a colour']);
+		expect(layout.dock).toBeNull();
 		expect(layout.space).toEqual({ x: 10, y: 268, w: 44, h: 30 });
 		expect(layout.channels).toHaveLength(3);
 		expect(layout.channels[0]).toMatchObject({ x: 62, y: 268, h: 30 });
 		expect(layout.channels[2].x + layout.channels[2].w).toBeCloseTo(278, 9);
 		expect(layout.alphaField).toBeNull();
 		expect(layout.swatches).toEqual([]);
+	});
+
+	it('lays out no eyedropper and no tooltip where it is given no words, the hex field reaching the contents\' right edge', () => {
+		const layout = open({}, 'wheel', 400, 500, null);
+		expect(layout.dropper).toBeNull();
+		expect(layout.tip).toBeNull();
+		expect(layout.hex).toEqual({ x: 74, y: 230, w: 204, h: 30 });
+		expect(region(layout, [263, 245])).toEqual({ kind: 'hex', index: -1 });
+		expect(layout.box.h).toBe(308);
+	});
+
+	it('stands the dock button its host shows left of the close, a square of the tab row\'s height, the tabs sharing the row left of it', () => {
+		for (const kind of ['popout', 'dock'] as const) {
+			const layout = open({}, 'wheel', 400, 500, DROPPER_TIPS.custom, kind);
+			expect(layout.dock).toEqual({ kind, box: { x: 236, y: 10, w: 24, h: 24 } });
+			expect(layout.close).toEqual({ x: 260, y: 10, w: 24, h: 24 });
+			expect(layout.tabs.map((tab) => tab.box)).toEqual([10, 64.5, 119, 173.5].map((x) => ({ x, y: 10, w: 54.5, h: 24 })));
+			expect(region(layout, [248, 22])).toEqual({ kind: 'dock', index: -1 });
+			expect(region(layout, [272, 22])).toEqual({ kind: 'close', index: -1 });
+			// Between the last tab, ending at 228, and the dock button.
+			expect(region(layout, [232, 22])).toBeNull();
+			expect(colourAtRegion(layout, { kind: 'dock', index: -1 }, 248, 22, termsOf(ORANGE, 1), ORANGE)).toBeNull();
+			expect(fieldBox(layout, { kind: 'dock', index: -1 })).toBeNull();
+		}
 	});
 
 	it('opens above where the room below is short and there is more above, and reaches past the edge where neither side has the room', () => {
@@ -103,8 +129,8 @@ describe('layoutPicker', () => {
 			expect(layout.box).toMatchObject({ x: 10, w: PICKER.width });
 			expect(layout.area.w).toBe(PICKER.width - 2 * PICKER.pad);
 			expect(layout.wheel).toEqual(open().wheel);
-			expect(layout.dropper.x + layout.dropper.w).toBe(PICKER.width - PICKER.pad);
-			expect(layout.hex.x + layout.hex.w).toBe(layout.dropper.x - PICKER.gap);
+			expect(layout.dropper!.x + layout.dropper!.w).toBe(PICKER.width - PICKER.pad);
+			expect(layout.hex.x + layout.hex.w).toBe(layout.dropper!.x - PICKER.gap);
 			expect(open({ alpha: true, style: { width } }, 'square').square).toEqual(open({ alpha: true }, 'square').square);
 		}
 	});
@@ -426,13 +452,14 @@ describe('paintPicker', () => {
 		alpha: number;
 	}
 
-	/** A context that records each call the painter makes, with the style standing as it is made, but `beginPath`, which does nothing, and `createLinearGradient` and `measureText`, which answer unrecorded: a gradient that holds its arguments and stands as a fill where it is set, and fixed measures. */
+	/** A context that records each call the painter makes, with the style standing as it is made, a restore bringing back the style its save kept as a canvas's does, but `beginPath`, which does nothing, and `createLinearGradient` and `measureText`, which answer unrecorded: a gradient that holds its arguments and stands as a fill where it is set, and fixed measures. */
 	const recording = () => {
 		const calls: Call[] = [];
 		const state: Record<string, unknown> = { fillStyle: '', strokeStyle: '', globalAlpha: 1, font: '', lineWidth: 1, textAlign: 'left', textBaseline: 'alphabetic', globalCompositeOperation: 'source-over' };
+		const saved: Record<string, unknown>[] = [];
 		const record = (op: string) => (...args: unknown[]) => { calls.push({ op, args, fill: state.fillStyle, stroke: state.strokeStyle as string, font: state.font as string, alpha: state.globalAlpha as number }); };
 		const ctx: Record<string, unknown> = {
-			save: record('save'), restore: record('restore'), clearRect: record('clearRect'), beginPath: () => { }, roundRect: record('roundRect'), rect: record('rect'), clip: record('clip'),
+			save: () => { record('save')(); saved.push({ ...state }); }, restore: () => { record('restore')(); Object.assign(state, saved.pop()); }, clearRect: record('clearRect'), beginPath: () => { }, roundRect: record('roundRect'), rect: record('rect'), clip: record('clip'),
 			fill: record('fill'), stroke: record('stroke'), arc: record('arc'), fillRect: record('fillRect'), fillText: record('fillText'), drawImage: record('drawImage'), setTransform: record('setTransform'),
 			createLinearGradient: (...args: unknown[]) => ({ args, addColorStop: record('addColorStop') }),
 			// A capital at 16 px: 11.4 above the middle line and 5.5 below it, to the baseline.
@@ -442,7 +469,7 @@ describe('paintPicker', () => {
 		return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
 	};
 
-	const stateOf = (over: Partial<PickerPaintState> = {}): PickerPaintState => ({ colour: ORANGE, hex: '#ff8b30', old: ORANGE, oldAlpha: 1, lit: null, name: -1, terms: termsOf(ORANGE, 1), bar: 0, space: 'RGB', field: null, dropper: { tier: 'frame', armed: false, tip: false }, ...over });
+	const stateOf = (over: Partial<PickerPaintState> = {}): PickerPaintState => ({ colour: ORANGE, hex: '#ff8b30', old: ORANGE, oldAlpha: 1, lit: null, name: -1, terms: termsOf(ORANGE, 1), bar: 0, space: 'RGB', field: null, dropper: { armed: false, tip: false, unavailable: false }, ...over });
 
 	const paint = (layout: PickerLayout, state: PickerPaintState, wheel: CanvasImageSource | null = null) => {
 		const { ctx, calls } = recording();
@@ -644,7 +671,7 @@ describe('paintPicker', () => {
 
 	it('sets its tab names and colour names in the widget\'s font, and its fields\' words and its tooltip\'s in the monospaced family', () => {
 		const names = open({ alpha: true }, 'names', 400, 500, 'Pick a colour');
-		const calls = paint(names, stateOf({ dropper: { tier: 'frame', armed: false, tip: true } }));
+		const calls = paint(names, stateOf({ dropper: { armed: false, tip: true, unavailable: false } }));
 		const fontOf = (words: string) => calls.find((c) => c.op === 'fillText' && c.args[0] === words)?.font;
 		const mono = '"Roboto Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace';
 		expect(fontOf('Names')).toBe('400 16px "Roboto", Roboto, sans-serif');
@@ -719,9 +746,9 @@ describe('paintPicker', () => {
 		expect(calls.filter((c) => c.op === 'arc')).toEqual([]);
 	});
 
-	it('paints the eyedropper after every other part: a field\'s box, its line hovered under the pointer, with a pipette across it in the words\' colour, the pipette and a ring in the accent while armed, and half as solid where it picks nothing', () => {
+	it('paints the eyedropper after every other part: a field\'s box, its line hovered under the pointer, with a pipette across it in the words\' colour, the pipette and a ring in the accent while armed, the whole half as solid where it is unavailable, and none where there is no eyedropper', () => {
 		const layout = open();
-		const box = layout.dropper;
+		const box = layout.dropper!;
 		const rest = paint(layout, stateOf(), image);
 		const face = rest.findIndex((c) => c.op === 'roundRect' && c.args.join() === [box.x, box.y, box.w, box.h, CONTROL.radius].join());
 		expect(face).toBeGreaterThan(0);
@@ -736,23 +763,58 @@ describe('paintPicker', () => {
 		const lit = paint(layout, stateOf({ lit: { kind: 'dropper', index: -1 } }), image);
 		expect(lit.slice(face).filter((c) => c.op === 'stroke')[0].stroke).toBe(PALETTE.lineHover);
 		// Armed: the pipette in the accent, and a ring round the box.
-		const armed = paint(layout, stateOf({ dropper: { tier: 'frame', armed: true, tip: false } }), image).slice(face);
+		const armed = paint(layout, stateOf({ dropper: { armed: true, tip: false, unavailable: false } }), image).slice(face);
 		expect(armed.filter((c) => c.op === 'stroke').map((c) => c.stroke)).toEqual([PALETTE.line, 'rgba(47,111,214,1)', 'rgba(47,111,214,1)']);
-		// Where it picks nothing: half as solid, and no darker line under the pointer.
-		const off = paint(layout, stateOf({ lit: { kind: 'dropper', index: -1 }, dropper: { tier: 'off', armed: false, tip: false } }), image).slice(face);
-		expect(off.filter((c) => c.op === 'fill' || c.op === 'stroke').every((c) => c.alpha === PALETTE.disabled)).toBe(true);
-		expect(off.filter((c) => c.op === 'stroke')[0].stroke).toBe(PALETTE.line);
+		// Unavailable: the whole of it half as solid, its line not hovered under the pointer, and its tooltip, while it shows, solid over it.
+		const unavailable = paint(layout, stateOf({ lit: { kind: 'dropper', index: -1 }, dropper: { armed: false, tip: true, unavailable: true } }), image);
+		const restored = unavailable.findIndex((c, i) => i > face && c.op === 'restore');
+		const own = unavailable.slice(face, restored);
+		expect(own.filter((c) => c.op === 'moveTo' || c.op === 'lineTo').map((c) => c.args)).toEqual([[256, 252], [265, 243], [262, 240], [268, 246]]);
+		expect(own.every((c) => c.alpha === PALETTE.disabled)).toBe(true);
+		expect(own.filter((c) => c.op === 'stroke')[0].stroke).toBe(PALETTE.line);
+		const bubble = unavailable.findIndex((c) => c.op === 'fill' && c.fill === PALETTE.tip);
+		expect(bubble).toBeGreaterThan(restored);
+		expect(unavailable.slice(bubble).filter((c) => c.op === 'fill' || c.op === 'fillText').every((c) => c.alpha === 1)).toBe(true);
+		// Without an eyedropper: no pipette and no tooltip, whatever the state says, and the hex field's face reaching the row's end.
+		const none = open({}, 'wheel', 400, 500, null);
+		const bare = paint(none, stateOf({ dropper: { armed: true, tip: true, unavailable: false } }), image);
+		expect(bare.some((c) => c.op === 'moveTo' && c.args.join() === '256,252')).toBe(false);
+		expect(bare.some((c) => c.op === 'fill' && c.fill === PALETTE.tip)).toBe(false);
+		expect(bare.some((c) => c.op === 'roundRect' && c.args.join() === [74, 230, 204, 30, CONTROL.radius].join())).toBe(true);
+	});
+
+	it('paints the dock button beside the close in the cross\'s stroke, as tall as the cross and on its baseline: a window open at its top-right corner with an arrow out of it to pop out, or into it to dock, in the accent under the pointer', () => {
+		const third = 10 / 3;
+		const marks = (calls: Call[]) => calls.filter((c) => c.op === 'moveTo' || c.op === 'lineTo').map((c) => c.args);
+		// The cross's four strokes first, then the window from the gap's left end round to its foot, 10 across centred at 248.
+		const window = [[248, 16.5], [243, 16.5], [243, 26.5], [253, 26.5], [253, 21.5]];
+		const out = paint(open({}, 'wheel', 400, 500, DROPPER_TIPS.custom, 'popout'), stateOf(), image);
+		expect(marks(out).slice(4, 14)).toEqual([...window, [248, 21.5], [254, 15.5], [254 - third, 15.5], [254, 15.5], [254, 15.5 + third]]);
+		const into = paint(open({}, 'wheel', 400, 500, DROPPER_TIPS.custom, 'dock'), stateOf({ lit: { kind: 'dock', index: -1 } }), image);
+		expect(marks(into).slice(4, 14)).toEqual([...window, [254, 15.5], [248, 21.5], [248 + third, 21.5], [248, 21.5], [248, 21.5 - third]]);
+		// In the words' colour, and in the accent under the pointer.
+		const strokeAfter = (calls: Call[], at: number[]) => calls[calls.findIndex((c) => c.op === 'lineTo' && c.args.join() === at.join()) + 1];
+		expect(strokeAfter(out, [254, 15.5 + third])).toMatchObject({ op: 'stroke', stroke: 'rgba(27,31,36,1)' });
+		expect(strokeAfter(into, [248, 21.5 - third])).toMatchObject({ op: 'stroke', stroke: 'rgba(47,111,214,1)' });
+		// No dock button, no window.
+		expect(marks(paint(open(), stateOf(), image)).some((at) => at.join() === '243,16.5')).toBe(false);
+	});
+
+	it('keeps the line under the active tab\'s word within its tab, which the dock button narrows', () => {
+		// "Sliders", 56 wide at 8 a character, would reach 34 either side of its tab's middle at 146.25; its tab is 54.5 wide.
+		const calls = paint(open({}, 'sliders', 400, 500, DROPPER_TIPS.custom, 'popout'), stateOf(), image);
+		expect(calls.some((c) => c.op === 'fillRect' && c.fill === 'rgba(47,111,214,1)' && c.args.join() === [119, 32, 54.5, 2].join())).toBe(true);
 	});
 
 	it('paints the eyedropper\'s tooltip only while it shows, last: a bubble in the tooltip\'s colour, its words in white a line each at the left of its room', () => {
-		const layout = open({}, 'wheel', 400, 500, 'Eyedropper not available\nThe page has no view to pick colours from');
+		const layout = open({}, 'wheel', 400, 500, 'Pick a colour from the feed\nEscape puts it away');
 		const tip = layout.tip!;
 		expect(paint(layout, stateOf(), image).some((c) => c.op === 'fill' && c.fill === PALETTE.tip)).toBe(false);
-		const shown = paint(layout, stateOf({ dropper: { tier: 'off', armed: false, tip: true } }), image);
+		const shown = paint(layout, stateOf({ dropper: { armed: false, tip: true, unavailable: false } }), image);
 		const bubble = shown.findIndex((c) => c.op === 'fill' && c.fill === PALETTE.tip);
 		expect(shown[bubble - 1]).toMatchObject({ op: 'roundRect', args: [tip.box.x, tip.box.y, tip.box.w, tip.box.h, PICKER.round] });
 		const words = shown.slice(bubble).filter((c) => c.op === 'fillText');
-		expect(words.map((c) => [c.args[0], c.args[1], c.fill])).toEqual([['Eyedropper not available', tip.box.x + PICKER.tipPad, '#ffffff'], ['The page has no view to pick colours from', tip.box.x + PICKER.tipPad, '#ffffff']]);
+		expect(words.map((c) => [c.args[0], c.args[1], c.fill])).toEqual([['Pick a colour from the feed', tip.box.x + PICKER.tipPad, '#ffffff'], ['Escape puts it away', tip.box.x + PICKER.tipPad, '#ffffff']]);
 		expect(words[1].args[2] as number - (words[0].args[2] as number)).toBe(12 * CONTROL.lineHeight);
 		expect(shown.filter((c) => c.op === 'save')).toHaveLength(shown.filter((c) => c.op === 'restore').length);
 	});
@@ -775,17 +837,17 @@ describe('paintPicker', () => {
 });
 
 describe('the eyedropper\'s layout and region', () => {
-	it('lays its tooltip out from its words in the picker\'s monospaced font at a title\'s size, the note on a line of its own and each line wrapped to the picker\'s width, right-aligned above the eyedropper', () => {
+	it('lays its tooltip out from its words in the picker\'s monospaced font at a title\'s size, a line break starting another line and each line wrapped to the picker\'s width, right-aligned above the eyedropper', () => {
 		// 6 a character at 12 px.
-		const layout = open({}, 'wheel', 400, 500, 'Eyedropper not available\nThe page has no view to pick colours from');
+		const layout = open({}, 'wheel', 400, 500, 'Pick a colour from the feed\nEscape puts it away');
 		expect(layout.tip!.font.size).toBe(12);
 		expect(layout.tip!.font.family).toBe('Roboto Mono');
-		expect(layout.tip!.lines).toEqual(['Eyedropper not available', 'The page has no view to pick colours from']);
-		const w = 41 * 6 + 2 * PICKER.tipPad;
+		expect(layout.tip!.lines).toEqual(['Pick a colour from the feed', 'Escape puts it away']);
+		const w = 27 * 6 + 2 * PICKER.tipPad;
 		const h = 2 * 12 * CONTROL.lineHeight + 2 * PICKER.tipPad;
 		expect(layout.tip!.box).toEqual({ x: 278 - w, y: 230 - PICKER.gap / 2 - h, w, h });
-		// A tier's words longer than the room wrap at the last space that fits, every word kept.
-		const words = 'Pick a colour from the view. Picking from anywhere on the screen needs Chrome or Edge on a computer';
+		// Words longer than the room wrap at the last space that fits, every word kept.
+		const words = DROPPER_TIPS.fallback;
 		const wrapped = open({}, 'wheel', 400, 500, words).tip!;
 		expect(wrapped.lines.length).toBeGreaterThan(1);
 		expect(wrapped.lines.join(' ')).toBe(words);
@@ -795,15 +857,16 @@ describe('the eyedropper\'s layout and region', () => {
 	});
 
 	it('names the eyedropper, and its tooltip over what lies under it only while it shows', () => {
-		const layout = open({}, 'wheel', 400, 500, 'Eyedropper not available\nThe page has no view to pick colours from');
-		expect(region(layout, centre(layout.dropper))).toEqual({ kind: 'dropper', index: -1 });
+		const layout = open({}, 'wheel', 400, 500, 'Pick a colour from the feed\nEscape puts it away');
+		const dropper = layout.dropper!;
+		expect(region(layout, centre(dropper))).toEqual({ kind: 'dropper', index: -1 });
 		expect(region(layout, [layout.hex.x + layout.hex.w - 1, 245])).toEqual({ kind: 'hex', index: -1 });
-		expect(region(layout, [layout.dropper.x - 4, 245])).toBeNull();
+		expect(region(layout, [dropper.x - 4, 245])).toBeNull();
 		const under = centre(layout.tip!.box);
 		const terms = termsOf(ORANGE, 1);
 		expect(pickerRegionAt(layout, under[0], under[1], terms.unit, true)).toEqual({ kind: 'tip', index: -1 });
 		expect(pickerRegionAt(layout, under[0], under[1], terms.unit, false)).toEqual(region(layout, under));
-		expect(colourAtRegion(layout, { kind: 'dropper', index: -1 }, ...centre(layout.dropper), terms, ORANGE)).toBeNull();
+		expect(colourAtRegion(layout, { kind: 'dropper', index: -1 }, ...centre(dropper), terms, ORANGE)).toBeNull();
 		expect(fieldBox(layout, { kind: 'dropper', index: -1 })).toBeNull();
 	});
 });

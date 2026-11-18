@@ -1,9 +1,11 @@
 /**
  * @fileoverview The picker's public face.
  *
- * On a page: a colour well (`ColourWell`), made from its options, which
- * opens its picker over the page; what the page offers the picker's
- * eyedropper; and the Color Picker dialog (`pickerShow`, `pickerUpdate`).
+ * On a page: a colour well (`ColourWell`), made from its options; the page's
+ * picker it joins (`PagePicker`, the page's own from `pagePicker`), which
+ * opens on one well at a time, in the page or in a window of its own
+ * (`Docking`); the eyedropper it shows (`Eyedropper`); and the Color Picker
+ * dialog (`pickerShow`, `pickerUpdate`).
  *
  * In a host of one's own, a 3D scene or VR among them: the picker
  * (`ColourPicker`) and what it asks of its host (`PickerHost`), the colour
@@ -13,9 +15,11 @@
  * stands against its colour on a screen (`screenPopoverRect`).
  */
 
-export { ColourWell, SCREEN_ONLY, type ColourWellOptions } from './js/colourWell.ts';
+export { ColourWell, type ColourWellOptions } from './js/colourWell.ts';
+export { DOCKINGS, PagePicker, pagePicker, type Docking, type PagePickerOptions } from './js/pagePicker.ts';
 export { PICKER_MODES, readColourOptions, swatchesOf, type ColourOptions, type ColourStyle, type ColourWidget, type PickerMode, type WidgetEvent, type WidgetStyle } from './js/options.ts';
-export { ColourPicker, forgetChosenMode, type DropperOffer, type DropperView, type PickerHost, type Uv } from './js/colourPicker.ts';
+export { ColourPicker, EYEDROPPER_MODES, forgetChosenMode, type CustomPick, type DropperView, type Eyedropper, type EyedropperMode, type PickerHost, type Uv } from './js/colourPicker.ts';
+export { DROPPER_TIPS, type DockButton } from './js/pickerView.ts';
 export { pickerShow, pickerUpdate } from './js/picker.js';
 
 export { layoutWell, restingState, type Box, type Font, type Laid, type ResolvedStyle, type TextMeasure, type WidgetState } from './js/layout.ts';
