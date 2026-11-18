@@ -516,12 +516,12 @@ class TestPanel implements PickerHost, InputHost {
 		return true;
 	}
 
-	placement(): { object: Plane; docked: boolean; width: number; height: number; box: Box; look: Omit<InputLook, 'scale'> } | null {
+	placement(): { object: Plane; width: number; height: number; box: Box; look: Omit<InputLook, 'scale'> } | null {
 		const laid = this.laidOf(this.focusedOne);
 		if (!laid) return null;
 		const { style, face, inner } = laid;
 		const field = this.picker.placement(laid.widget, style.opacity);
-		if (field) return { object: this.popoverMesh, docked: false, width: field.box.w, height: field.box.h, box: field.field, look: field.look };
+		if (field) return { object: this.popoverMesh, width: field.box.w, height: field.box.h, box: field.field, look: field.look };
 		const line = fieldLine(laid);
 		const look: Omit<InputLook, 'scale'> = {
 			font: style.font,
@@ -537,7 +537,7 @@ class TestPanel implements PickerHost, InputHost {
 			lineColor: line.colour,
 			opacity: style.opacity,
 		};
-		return { object: this.mesh, docked: false, width: this.width, height: this.height, box: face, look };
+		return { object: this.mesh, width: this.width, height: this.height, box: face, look };
 	}
 }
 
@@ -1546,7 +1546,7 @@ describe('a colour\'s picker', () => {
 		const picker = pickerOf(panel)!;
 		pressRelease(panel, centre(picker.layout.hex));
 		const { box, hex } = picker.layout;
-		expect(panel.placement()).toMatchObject({ object: panel.popoverMesh, docked: false, width: box.w, height: box.h, box: { x: hex.x, y: hex.y, w: hex.w, h: hex.h } });
+		expect(panel.placement()).toMatchObject({ object: panel.popoverMesh, width: box.w, height: box.h, box: { x: hex.x, y: hex.y, w: hex.w, h: hex.h } });
 		expect(panel.placement()?.look).toMatchObject({ align: 'center', radius: CONTROL.radius, line: CONTROL.border, lineColor: PALETTE.line, background: PALETTE.field, padX: CONTROL.padX, opacity: 1 });
 		expect(panel.placement()?.look.font.size).toBe(16);
 		expect(panel.placement()?.look.font.family).toBe('Roboto Mono');
