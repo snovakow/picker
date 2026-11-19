@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "picker",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Color Picker: the colour well, the picker it opens with its eyedropper, and the Color Picker dialog, with a demo page",
   "license": "MIT",
   "type": "module",
