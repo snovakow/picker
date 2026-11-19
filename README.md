@@ -2,7 +2,8 @@
 
 Color Picker: colour wells that share one picker with an eyedropper, the Color Picker dialog, and
 a demo page. It is on its way to becoming a library: a page uses the wells and the picker they
-share, and a host of its own, a 3D scene or VR among them, can show the picker itself.
+share, in React among them; a three.js or React Three Fiber scene, or VR, a well of its own on
+planes; and a host of its own can show the picker itself.
 
 ## Running it
 
@@ -16,9 +17,9 @@ npm run build        # the demo, built into dist/
 
 The demo page holds a colour well for each kind of colour its options make and one that sets
 its own eyedropper, the Color Picker dialog opened from a button, a view of flat colours of
-known bytes over gradients for the eyedropper to pick from, a switch of the picker's eyedropper
-and one of where it stands, and a log of what the wells and the dialog tell. It uses the picker
-only through `src/index.ts`, as a page would.
+known bytes over gradients for the eyedropper to pick from, a switch of the picker's eyedropper,
+one of where it stands and one of what draws its wheel, and a log of what the wells and the
+dialog tell. It uses the picker only through `src/index.ts`, as a page would.
 
 ## A colour well on a page
 
@@ -115,6 +116,110 @@ in the window works the picker as one on the well does, the well taking the focu
 went elsewhere. A browser opens such a window only for a click, so where it refuses one, the
 picker stands in the page: in `auto` as though docked, and in `popout` until it shuts.
 
+## In React
+
+`src/react.ts` gives the well as a React component (`ColourWell`), which joins the page's
+picker as any well does:
+
+```tsx
+import { ColourWell } from './src/react.ts';
+
+function Tint() {
+	const [tint, setTint] = useState('#ff8b30');
+	return <ColourWell value={tint} onChange={setTint} swatches={['#ff8b30', '#2f6fd6']} />;
+}
+```
+
+Its props are the well's options, with `value` written to the well as it changes, `defaultValue`
+where it is left out, `onChange` told each colour the viewer takes, `onEvent` every event, and
+`className` for the element its canvas stands in. Its ref is the well itself, null until it is
+made. The well is made as the component mounts and let go as it unmounts, so a server
+rendering the page renders the element alone. A change of the colour's kind or look (`alpha`,
+`mode`, `title`, `showValue`, `style`) or of `picker` makes a new well; the rest is written to
+the one there is.
+
+## In a three.js scene, and VR
+
+`src/three.ts` gives a well that stands in a three.js scene (`ColourWell3D`, a `Group`): its
+colour on a plane at its origin, and its picker on a plane below it as it opens, under
+`WebGLRenderer` or `WebGPURenderer`. It lays itself out in pixels of its own, each `pixelSize`
+of the scene's units across, a millimetre by default for a scene in metres, as VR's is, and
+paints its textures at `resolution` texture pixels to one of its own, 2 by default.
+
+```ts
+import { ColourWell3D } from './src/three.ts';
+
+const well = new ColourWell3D({
+	value: '#ff8b30',
+	renderer: 'webgpu',
+	onEvent: (event, well) => { if (event === 'change') paint.color.set(well.value); },
+});
+well.position.set(0, 1.4, -0.6);
+scene.add(well);
+well.listen(renderer.domElement, camera);
+```
+
+`listen` has the well take the pointer on the renderer's canvas itself, each event's ray cast
+from the camera, a press it takes going no further, so the app's own controls listening on the
+canvas after it don't see it. An app with its own pointers, VR's controllers among them, hands
+the well their rays in world space instead, each by an id of its own:
+
+```ts
+const ray = new THREE.Ray();
+const rayOf = (controller: THREE.Object3D) => {
+	ray.origin.setFromMatrixPosition(controller.matrixWorld);
+	ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld);
+	return ray;
+};
+controller.addEventListener('selectstart', () => well.pointerDown(rayOf(controller), 1));
+controller.addEventListener('selectend', () => well.pointerUp(rayOf(controller), 1));
+// Each frame:
+well.pointerMove(rayOf(controller), 1);
+```
+
+A press held moves along the plane it went down on wherever the ray goes, off its edges
+among them, and one let go unmoved where it went down is a click. One well's picker opening
+shuts another's, and a press on neither plane (`pointerMissed`, or a ray that misses both) lets
+the well's focus go, the picker staying open, as on a page. The well paints again as it
+changes, and asks the app for a frame (`requestRender`) for an app that renders on demand. The
+page's input takes its keys and its typing, placed over the field typed into as the view shows
+it (`setView`, which `listen` sets), and out of sight with no view, as in VR, where the typing
+shows in the field the picker paints. Its value, swatches, `disabled`, eyedropper and renderer
+are read and written as a page's well's are, and `dispose` lets it go.
+
+Its colours show true under `WebGLRenderer` whatever its tone mapping. three.js's
+`WebGPURenderer` tone-maps the whole frame as it draws it out, a material's `toneMapped` left
+unread, so the well shows true there only with no tone mapping (`NoToneMapping`, three.js's
+default); with any other, the well warns once. In Chrome on 2026-11-19, under React Three
+Fiber's default tone mapping, ACES Filmic, the picker's white showed as 226 of 255, and its
+green, `#00ff00`, as `#93e459`.
+
+## In React Three Fiber
+
+`src/r3f.ts` gives the three.js well as a component in a Fiber Canvas (`ColourWell3D`), worked
+by Fiber's pointer events:
+
+```tsx
+import { ColourWell3D } from './src/r3f.ts';
+
+<Canvas flat>
+	<ColourWell3D value={tint} onChange={setTint} position={[0, 1.4, -0.6]} />
+</Canvas>
+```
+
+Its props are the three.js well's options, with `value`, `defaultValue`, `onChange` and
+`onEvent` as React's well takes them, and `position`, `rotation` and `scale` as a group's; its
+ref is the well. Its wheel is drawn by WebGPU under a `WebGPURenderer` drawing by WebGPU, and
+by WebGL otherwise, unless `renderer` says. A press it takes is captured and stops there, a
+press on nothing lets its focus go, the page's input is placed through Fiber's camera, and it
+asks Fiber for a frame as it paints, so a Canvas rendering on demand shows it. A change of the
+colour's kind or look, `pixelSize` or `resolution` makes a new well. Fiber's Canvas tone-maps by
+default; `flat` turns it off, which a `WebGPURenderer` needs for the well's colours to show
+true.
+
+React, three.js and Fiber are the app's own: only these entries import them, and the main one
+(`src/index.ts`) imports none of them.
+
 ## Hosting the picker yourself: 3D and VR
 
 `ColourPicker` is the picker on its own: it holds what is open and what a press on it holds,
@@ -122,8 +227,8 @@ paints itself into a 2D canvas of its own, which a host shows however it draws, 
 a WebGL or a WebGPU scene among them, and asks its host (`PickerHost`) for the rest: the
 widget's state and layout, where the picker stands and what it is drawn on, the page's input,
 the events it tells, and the eyedropper it sets. A page's picker (`PagePicker`) is one host,
-serving the page's wells. A host that draws the colour and its picker on planes in a 3D scene,
-or in VR, is another:
+serving the page's wells, and a three.js well (`ColourWell3D`, above) another, drawing its colour
+and picker on planes. A host of one's own that does so, in a scene of another engine or in VR:
 
 - it reads its colour widget from options (`readColourOptions`), lays it out and paints it
   where it likes (`layoutWell`, `paintWell`), and shows the picker's canvas on a plane of its
@@ -163,25 +268,33 @@ leaves the wheel out until it comes, and the picker is painted again as it does.
 context is lost is made again as the next wheel asks; one whose context never came is not asked
 for again.
 
-This version builds only WebGL's renderer, so a picker set to `webgpu` has its wheel drawn by
-WebGL.
+WebGL's renderer has its context as it is made. WebGPU's asks the browser for an adapter and a
+device of its own as it is made, so the first wheel asked of it is left out until the device
+comes, about a tenth of a second in Chrome, and the picker is painted again with it; where the
+browser offers no WebGPU, or no adapter or device comes, WebGL draws the wheel from then on. Its
+shaders are WebGL's written in WGSL, blended and kept as WebGL's are, so the two draw the same
+wheel: in Chrome on 2026-11-18, on Apple's Metal, the picker drawn by each differed in 6 of its
+354,816 pixels, each by 1 of 255.
 
 In a three.js scene the picker's canvas is a texture under either renderer, `WebGLRenderer`
-or `WebGPURenderer`:
+or `WebGPURenderer`, as the three.js well shows it:
 
 ```ts
 const texture = new THREE.CanvasTexture(picker.canvas);
 texture.colorSpace = THREE.SRGBColorSpace;
-const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false });
 ```
 
 The host sets `texture.needsUpdate` as the picker tells it the canvas was painted
 (`popoverPainted`), and makes a new texture where it says the canvas was resized. A ray's hit
 on the plane gives the `uv` the picker takes as a point of its plane. The picker's renderer is
 set to match the scene's: `webgl` under `WebGLRenderer`, `webgpu` under `WebGPURenderer`. This
-was checked in Chrome on 2026-11-18 with three.js r187, its `WebGPURenderer` running on WebGPU
-itself: the picker's colours showed true to their bytes under both, a raycast click landed on
-the point aimed at and set the colour there, and a lost wheel context was made again.
+was checked in Chrome on 2026-11-19 with three.js r187 and React Three Fiber 9.8, under each
+renderer, `WebGPURenderer` running on WebGPU itself: a click on the well opened its picker,
+a click on its ring and a drag carried far past its edge set the colour there, typing into its
+hex field set it, a press beside it let its focus go, and under `WebGPURenderer` the page made
+no WebGL context at all. Its colours showed true to their bytes under both, but for
+`WebGPURenderer` tone-mapping (above).
 
 ## The eyedropper
 
@@ -221,18 +334,34 @@ press is taken ahead of the view's own listeners, the click after it swallowed, 
 input keeps its focus through it; the view's cursor is a crosshair while the eyedropper is
 armed on it.
 
+## On a server
+
+The picker can be imported where there is no document, as a framework that renders a page on
+a server before the browser runs it, Next.js or Remix among them, imports it: none of its
+modules touches the document, the window, a canvas or the GPU as it loads. The Color Picker
+dialog is made as it is first shown, so a page that never shows it makes none of it, its
+wheel's WebGL context among it. What it makes needs the browser: a well, a page's picker and
+the dialog are made there, as a React component makes them in an effect, which a server does
+not run. It is imported through a bundler, which takes its stylesheet (`picker.css`), as each
+such framework has.
+
 ## What it holds
 
 | File | What it is |
 |---|---|
 | `src/index.ts` | The public face: what a page and a host import |
+| `src/react.ts`, `src/three.ts`, `src/r3f.ts` | The adapters' faces: React's, three.js's and React Three Fiber's, the only ones that import them |
 | `src/js/colourWell.ts` | A colour well on a page: the colour on a canvas of its own, joining the page's picker |
+| `src/js/reactWell.ts`, `src/js/same.ts` | The page's well as a React component, and a prop held the same across renders for both components |
+| `src/js/colourWell3D.ts` | A colour well in a three.js scene: its colour and its picker on planes, the picker's host, worked by rays |
+| `src/js/r3fWell.ts` | The three.js well as a React Three Fiber component, worked by Fiber's pointer events |
 | `src/js/pagePicker.ts` | The page's picker: one picker the page's wells share, open on one at a time, in the page or in a window of its own, with the presses on its eyedropper's view |
 | `src/js/colourPicker.ts` | The picker as it runs: what is open, a press on it, its keys, its fields, its eyedropper, its painting, each worked through its host |
 | `src/js/pickerView.ts` | The picker's layout, regions, colour maths and painting, the eyedropper's among them |
-| `src/js/wheel.ts` | The colour wheel and triangle: their maths |
+| `src/js/wheel.ts` | The colour wheel and triangle: their maths, and what a renderer draws them from |
 | `src/js/renderer.ts` | What draws the wheel, WebGL or WebGPU: one shared renderer of each, the other drawing where the one set can't be had |
 | `src/js/wheelWebGL.ts` | The wheel drawn by WebGL |
+| `src/js/wheelWebGPU.ts` | The wheel drawn by WebGPU: WebGL's shaders in WGSL, on a device asked of the browser |
 | `src/js/colour.ts` | The colour maths, the standard colours, the channel bars, the checkerboard |
 | `src/js/options.ts` | A colour widget's options, and the widget they are read into |
 | `src/js/layout.ts` | The box, font, style and state types, a widget's measures and its style resolved, a colour widget laid out on its own |
@@ -256,9 +385,23 @@ where a test needs a DOM:
   eyedropper's press on the view and the app's own pick, and the picker's window, a stand-in
   over a document of its own;
 - `pickerView.test.ts`: the picker's layout, regions and painting, the eyedropper's among them;
-- `renderer.test.ts`: what draws the wheel: the renderer set or the other, shared, on a
-  stand-in for WebGL's whose context comes at once, later or never, or is lost;
+- `renderer.test.ts`: what draws the wheel: the renderer set or the other, shared, on
+  stand-ins for WebGL's and WebGPU's whose context comes at once, later or never, or is lost;
+- `wheelWebGPU.test.ts`: WebGPU's renderer on a stand-in for the browser's WebGPU: whether it
+  can be had, its device coming later, never, or lost, its uniforms laid out as its shaders'
+  structs are, and its pass, the triangle then the ring;
+- `colourWell3D.test.ts`: the three.js well pointed at by rays: its planes, its picker opened
+  below its colour, a press on the wheel and its drag along the plane past its edges under a
+  well moved and turned in its scene, a click on the close, the pointer coming and going, one
+  picker shutting another, typing placed over the field as the view shows it, listening on a
+  canvas, the warning of `WebGPURenderer`'s tone mapping, and letting go;
+- `reactWell.test.ts`: React's well mounted in strict mode: its canvas and its ref, its value
+  written and the colour taken told, a new well for a new kind and the same one kept for the
+  rest;
 - `picker.test.ts`: the dialog's drags and the faces it loads;
+- `index.test.ts`: every public face loaded under Node with no document or window, as on a
+  server, the adapters' among them, an update to the dialog before it is first shown, and
+  React's well rendered as its element alone;
 - the rest: a widget's options, and each module's colour maths, layout, painting, input and
   press rules.
 
