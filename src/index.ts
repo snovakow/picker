@@ -14,6 +14,14 @@
  * (`readColourOptions`, `layoutWell`, `paintWell`), the page's input its
  * fields are typed through (`pageInput`, `InputHost`), and where a picker
  * stands against its colour on a screen (`screenPopoverRect`).
+ *
+ * Every module here loads with no document or window, as on a server
+ * rendering a page before the browser runs it: none touches the DOM, a
+ * canvas or the GPU until it is used (index.test.ts).
+ *
+ * The adapters are faces of their own, which alone import what they adapt
+ * to: React's well (react.ts), the well in a three.js scene (three.ts), and
+ * the well in React Three Fiber (r3f.ts).
  */
 
 export { ColourWell, type ColourWellOptions } from './js/colourWell.ts';
