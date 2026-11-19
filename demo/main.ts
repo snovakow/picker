@@ -3,11 +3,11 @@
  * options make, each opening the page's picker over the page or in a window
  * of its own; the Color Picker dialog, opened from a button; a view of flat
  * colours of known bytes over gradients, which the eyedropper picks from; a
- * switch of the picker's eyedropper and one of where it stands; and a log of
- * what the wells and the dialog tell. It uses the picker as a page would,
- * through its public face (src/index.ts).
+ * switch of the picker's eyedropper, one of where it stands and one of what
+ * draws its wheel; and a log of what the wells and the dialog tell. It uses
+ * the picker as a page would, through its public face (src/index.ts).
  */
-import { ColourWell, pagePicker, pickerShow, type ColourWellOptions, type CustomPick, type Docking, type DropperView, type Eyedropper } from '../src/index.ts';
+import { ColourWell, pagePicker, pickerShow, type ColourWellOptions, type CustomPick, type Docking, type DropperView, type Eyedropper, type Renderer } from '../src/index.ts';
 import './demo.css';
 
 /** One well for each kind of colour its options make, and one that sets its own eyedropper. */
@@ -188,5 +188,14 @@ for (const input of document.querySelectorAll<HTMLInputElement>('input[name="doc
 		if (!input.checked) return;
 		picker.setDocking(input.value as Docking);
 		say(`docking: ${input.value}`);
+	});
+}
+
+// The switch of what draws the picker's wheel.
+for (const input of document.querySelectorAll<HTMLInputElement>('input[name="renderer"]')) {
+	input.addEventListener('change', () => {
+		if (!input.checked) return;
+		picker.setRenderer(input.value as Renderer);
+		say(`renderer: ${input.value}`);
 	});
 }

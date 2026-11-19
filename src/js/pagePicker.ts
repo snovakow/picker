@@ -63,8 +63,8 @@
  * the page's input keeps its focus through it, and the picker stays open.
  *
  * Its wheel is drawn by the renderer it is set to (`Renderer`), WebGL unless
- * it is set to WebGPU, and by the other where that one cannot be had
- * (renderer.ts).
+ * it is set to WebGPU, and by the other where that one cannot be had, as
+ * where the browser offers no WebGPU (renderer.ts).
  */
 
 import { ColourPicker, type DropperView, type Eyedropper, type PickerHost, type Uv } from './colourPicker.ts';

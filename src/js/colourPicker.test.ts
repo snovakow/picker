@@ -99,7 +99,8 @@ beforeEach(() => {
 	forgetRenderers();
 	glStandIn.waits = false;
 	glStandIn.made.length = 0;
-	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as unknown as CanvasRenderingContext2D);
+	// Cast to never: the spy is typed by getContext's last overload, which WebGPU's types make WebGPU's.
+	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as never);
 });
 
 afterEach(() => {
@@ -839,7 +840,7 @@ describe('a colour\'s picker', () => {
 		expect(wheelDraws).toHaveLength(0);
 	});
 
-	it('asks its wheel of the renderer its host sets, WebGL where it sets none or one that does not read, a wheel asked of WebGPU drawn by WebGL while no WebGPU renderer is built', () => {
+	it('asks its wheel of the renderer its host sets, WebGL where it sets none or one that does not read, a wheel asked of WebGPU drawn by WebGL where the browser offers no WebGPU, as jsdom does not', () => {
 		const { panel, open } = coloured({});
 		open();
 		expect(rendererAsks).toEqual(['webgl']);
@@ -847,7 +848,7 @@ describe('a colour\'s picker', () => {
 		panel.setRenderer('webgpu');
 		expect(rendererAsks.at(-1)).toBe('webgpu');
 		expect(wheelDraws).toHaveLength(2);
-		// One renderer, WebGL's, shared by both.
+		// jsdom offering no WebGPU, WebGL's one renderer draws both.
 		expect(glStandIn.made).toHaveLength(1);
 		panel.setRenderer('sideways' as Renderer);
 		expect(rendererAsks.at(-1)).toBe('webgl');

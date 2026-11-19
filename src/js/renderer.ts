@@ -14,11 +14,14 @@
  * it comes; one whose context is lost is made again as the next wheel asks,
  * and one whose context never came is not asked for again.
  *
- * WebGL's renderer is built (wheelWebGL.ts); WebGPU's is not yet, so a
- * picker set to WebGPU has its wheel drawn by WebGL.
+ * WebGL's renderer (wheelWebGL.ts) has its context as it is made. WebGPU's
+ * (wheelWebGPU.ts) has its device later, asked of the browser as it is made,
+ * so the first wheel asked of it is drawn as the device comes, and by WebGL
+ * where no device comes.
  */
 
 import { makeWebGLWheel } from './wheelWebGL.ts';
+import { makeWebGPUWheel } from './wheelWebGPU.ts';
 import type { WheelGeometry, WheelTerms } from './wheel.ts';
 
 /** What can draw the wheel, as `Renderer` names it. */
@@ -48,8 +51,8 @@ export interface RendererEvents {
 /** Makes a renderer on a canvas, telling `events` as its context comes or goes; null where it cannot be had. */
 export type WheelMaker = (canvas: HTMLCanvasElement, events: RendererEvents) => WheelRenderer | null;
 
-/** The renderers that are built, by what they draw by. */
-const MAKERS: { readonly [kind in Renderer]?: WheelMaker } = { webgl: makeWebGLWheel };
+/** The renderers, by what they draw by. */
+const MAKERS: Readonly<Record<Renderer, WheelMaker>> = { webgl: makeWebGLWheel, webgpu: makeWebGPUWheel };
 
 /** The renderer that draws where the one asked for cannot be had. */
 const OTHER: Readonly<Record<Renderer, Renderer>> = { webgl: 'webgpu', webgpu: 'webgl' };
@@ -81,7 +84,6 @@ const tellWaiting = (slot: Shared): void => {
 
 /** Makes the shared renderer of a kind where it can be had, and marks it refused where it cannot. */
 const make = (kind: Renderer, slot: Shared): void => {
-	const maker = MAKERS[kind];
 	let made: WheelRenderer | null = null;
 	// Whether its context ever came: one lost before it did is not asked for again.
 	let came = false;
@@ -99,7 +101,7 @@ const make = (kind: Renderer, slot: Shared): void => {
 		},
 	};
 	try {
-		made = maker ? maker(document.createElement('canvas'), events) : null;
+		made = MAKERS[kind](document.createElement('canvas'), events);
 	} catch {
 		made = null;
 	}

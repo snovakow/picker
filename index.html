@@ -55,6 +55,15 @@
 		</section>
 
 		<section>
+			<h2>Renderer</h2>
+			<p class="note">What draws the picker's wheel: WebGPU draws it where the browser offers it, and WebGL where not.</p>
+			<div class="offers">
+				<label><input type="radio" name="renderer" value="webgl" checked> WebGL</label>
+				<label><input type="radio" name="renderer" value="webgpu"> WebGPU</label>
+			</div>
+		</section>
+
+		<section>
 			<h2>Events</h2>
 			<pre id="log" class="log"></pre>
 		</section>

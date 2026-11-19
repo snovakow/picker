@@ -58,7 +58,8 @@ const inertContext = () => new Proxy<Record<string | symbol, unknown>>({ globalA
 const made: { dispose(): void }[] = [];
 
 beforeEach(() => {
-	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as unknown as CanvasRenderingContext2D);
+	// Cast to never: the spy is typed by getContext's last overload, which WebGPU's types make WebGPU's.
+	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as never);
 	document.body.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0, toJSON: () => ({}) });
 });
 

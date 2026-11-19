@@ -3,8 +3,9 @@
  * whose corners are the hue, white and black, and the maths that reads a
  * colour into the wheel's terms, a point on the wheel back into a colour,
  * and a point into the part of the wheel it lies on. What draws it is its
- * renderer's (renderer.ts): WebGL's (wheelWebGL.ts) draws it from the
- * geometry and terms laid out here.
+ * renderer's (renderer.ts): WebGL's (wheelWebGL.ts) or WebGPU's
+ * (wheelWebGPU.ts), each from what the geometry and terms laid out here give
+ * it to draw from (`wheelUniforms`).
  *
  * A colour is held as four terms: the hue, its fully saturated colour (one
  * channel 255, one 0 and the third between, but for the green of 256 that
@@ -274,3 +275,43 @@ export interface WheelTerms {
 	saturation: number;
 	intensity: number;
 }
+
+/**
+ * What a renderer draws the wheel from, each point and length in the quad's
+ * normalised units (the canvas spans -0.5..0.5, y up) and each colour's
+ * channels 0..1: the triangle's corners, the hue at the first, and a logical
+ * pixel as a share of the wheel (`triangleUnit`); the hue's direction, y up,
+ * where the line across the ring stands (`handle`), a logical pixel as a
+ * share of the wheel's square (`ringUnit`), and the ring's radii; where the
+ * triangle's handle stands (`handleTri`) and the colour it rings (`base`);
+ * and the logical pixels each edge fades over (`antialias`).
+ */
+export interface WheelUniforms {
+	corners: Corners;
+	hue: [number, number, number];
+	triangleUnit: number;
+	handle: Vec2;
+	ringUnit: number;
+	innerRad: number;
+	outerRad: number;
+	handleTri: Vec2;
+	base: [number, number, number];
+	antialias: number;
+}
+
+/** What a renderer draws the wheel from (`WheelUniforms`) for a geometry and a colour's terms, the same whichever draws it. */
+export const wheelUniforms = (geometry: WheelGeometry, terms: WheelTerms): WheelUniforms => {
+	const corners = triangleOf(terms.unit, geometry);
+	return {
+		corners,
+		hue: [terms.hue[0] / 255, terms.hue[1] / 255, terms.hue[2] / 255],
+		triangleUnit: 1.0 / geometry.size,
+		handle: [terms.unit[0], -terms.unit[1]],
+		ringUnit: geometry.ratio / geometry.dim,
+		innerRad: geometry.inner / geometry.size / geometry.ratio,
+		outerRad: geometry.outer / geometry.size / geometry.ratio,
+		handleTri: triangleHandle(corners, terms.saturation, terms.intensity),
+		base: [terms.base[0] / 255, terms.base[1] / 255, terms.base[2] / 255],
+		antialias: WHEEL_ANTIALIAS,
+	};
+};

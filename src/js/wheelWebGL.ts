@@ -7,7 +7,7 @@
  * copied in the same task it is drawn in.
  */
 
-import { WHEEL_ANTIALIAS, triangleHandle, triangleOf, type Rgb, type WheelGeometry, type WheelTerms } from './wheel.ts';
+import { wheelUniforms, type WheelGeometry, type WheelTerms } from './wheel.ts';
 import type { RendererEvents, WheelRenderer } from './renderer.ts';
 
 /** The context the wheel is drawn with: no depth, stencil or multisampling, premultiplied alpha. */
@@ -265,8 +265,6 @@ const makeProgram = (gl: WebGLRenderingContext, vertCode: string, fragCode: stri
 	return { program, attribute, uniform };
 };
 
-const div3 = (v: Rgb, val: number): number[] => [v[0] / val, v[1] / val, v[2] / val];
-
 /**
  * Makes the wheel's WebGL context on the canvas given, or on a canvas of its
  * own, with its two programs and their buffers; null where the browser gives
@@ -293,7 +291,8 @@ export const makeWebGLWheel = (canvas: HTMLCanvasElement = document.createElemen
 		if (gl.isContextLost()) return false;
 		if (canvas.width !== geometry.width) canvas.width = geometry.width;
 		if (canvas.height !== geometry.height) canvas.height = geometry.height;
-		const corners = triangleOf(terms.unit, geometry);
+		const uniforms = wheelUniforms(geometry, terms);
+		const { corners } = uniforms;
 
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -306,9 +305,9 @@ export const makeWebGLWheel = (canvas: HTMLCanvasElement = document.createElemen
 
 		gl.useProgram(tri.program);
 
-		gl.uniform1f(tri.uniform.unit, 1.0 / geometry.size);
-		gl.uniform1f(tri.uniform.antialias, WHEEL_ANTIALIAS);
-		gl.uniform3fv(tri.uniform.color, div3(terms.hue, 255));
+		gl.uniform1f(tri.uniform.unit, uniforms.triangleUnit);
+		gl.uniform1f(tri.uniform.antialias, uniforms.antialias);
+		gl.uniform3fv(tri.uniform.color, uniforms.hue);
 		gl.uniform2fv(tri.uniform.pos0, corners[0]);
 		gl.uniform2fv(tri.uniform.pos1, corners[1]);
 		gl.uniform2fv(tri.uniform.pos2, corners[2]);
@@ -321,17 +320,15 @@ export const makeWebGLWheel = (canvas: HTMLCanvasElement = document.createElemen
 		gl.enableVertexAttribArray(aVertexIndex);
 		gl.drawArrays(gl.TRIANGLES, 0, triangle.indexLength);
 
-		const handleTri = triangleHandle(corners, terms.saturation, terms.intensity);
-
 		gl.useProgram(ring.program);
 
-		gl.uniform2fv(ring.uniform.handle, [terms.unit[0], -terms.unit[1]]);
-		gl.uniform1f(ring.uniform.unit, geometry.ratio / geometry.dim);
-		gl.uniform1f(ring.uniform.innerRad, geometry.inner / geometry.size / geometry.ratio);
-		gl.uniform1f(ring.uniform.outerRad, geometry.outer / geometry.size / geometry.ratio);
-		gl.uniform1f(ring.uniform.antialias, WHEEL_ANTIALIAS);
-		gl.uniform3fv(ring.uniform.colorBase, div3(terms.base, 255));
-		gl.uniform2fv(ring.uniform.handleTri, handleTri);
+		gl.uniform2fv(ring.uniform.handle, uniforms.handle);
+		gl.uniform1f(ring.uniform.unit, uniforms.ringUnit);
+		gl.uniform1f(ring.uniform.innerRad, uniforms.innerRad);
+		gl.uniform1f(ring.uniform.outerRad, uniforms.outerRad);
+		gl.uniform1f(ring.uniform.antialias, uniforms.antialias);
+		gl.uniform3fv(ring.uniform.colorBase, uniforms.base);
+		gl.uniform2fv(ring.uniform.handleTri, uniforms.handleTri);
 
 		gl.bindBuffer(gl.ARRAY_BUFFER, quad.vertexBuffer);
 		const aVertexPosition = ring.attribute.aVertexPosition;

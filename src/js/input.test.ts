@@ -37,7 +37,8 @@ beforeEach(() => {
 		textBaseline: 'alphabetic',
 		measureText: () => (metrics.textBaseline === 'middle' ? { fontBoundingBoxAscent: 10.25, fontBoundingBoxDescent: 7.75 } : { fontBoundingBoxAscent: 14, fontBoundingBoxDescent: 4 }),
 	};
-	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(metrics as unknown as CanvasRenderingContext2D);
+	// Cast to never: the spy is typed by getContext's last overload, which WebGPU's types make WebGPU's.
+	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(metrics as never);
 });
 
 afterEach(() => {
@@ -280,7 +281,7 @@ describe('PageInput', () => {
 			textBaseline: 'alphabetic',
 			measureText: () => (metrics.textBaseline === 'middle' ? { fontBoundingBoxAscent: middle, fontBoundingBoxDescent: 7.75 } : { fontBoundingBoxAscent: 14, fontBoundingBoxDescent: 4 }),
 		};
-		vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(metrics as unknown as CanvasRenderingContext2D);
+		vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(metrics as never);
 		try {
 			const { PageInput: Fresh } = await import('./input.ts');
 			const input = new Fresh(document.body);

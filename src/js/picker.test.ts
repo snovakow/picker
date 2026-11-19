@@ -34,7 +34,8 @@ const ON_RING = 120;
 let picker: typeof import('./picker.js');
 
 beforeAll(async () => {
-	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as unknown as CanvasRenderingContext2D);
+	// Cast to never: the spy is typed by getContext's last overload, which WebGPU's types make WebGPU's.
+	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as never);
 	picker = await import('./picker.js');
 });
 
