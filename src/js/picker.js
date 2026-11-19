@@ -17,7 +17,8 @@
  * @author Scott Novakowski
  */
 
-import { makeWheelRenderer, ringAt, saturatedOf, triangleAt, triangleColour, triangleOf, unitOfHue, wheelGeometry, wheelRegionAt } from './wheel.ts'
+import { ringAt, saturatedOf, triangleAt, triangleColour, triangleOf, unitOfHue, wheelGeometry, wheelRegionAt } from './wheel.ts'
+import { makeWebGLWheel } from './wheelWebGL.ts'
 import { SWATCHES, isLightSwatch, paintBar } from './colour.ts'
 import { loadFaces } from './paint.ts'
 import '../css/picker.css'
@@ -255,7 +256,8 @@ let wheelPickerSetRes
 	wheelPicker.style.width = totalHeight + 'px'
 	wheelPicker.style.height = totalHeight + 'px'
 
-	const wheel = makeWheelRenderer(wheelPicker)
+	// Drawn by WebGL, and not at all where the browser gives the canvas no context.
+	const wheel = makeWebGLWheel(wheelPicker)
 
 	const colorHue = [255, 0, 0]
 	const colorBase = [255, 0, 0]
@@ -276,7 +278,7 @@ let wheelPickerSetRes
 		if (unit) assign2(colorUnit, unit)
 
 		corners = triangleOf(colorUnit, geometry)
-		wheel.draw(geometry, { unit: colorUnit, hue: colorHue, base: colorBase, saturation: colorSaturation, intensity: colorIntensity })
+		wheel?.draw(geometry, { unit: colorUnit, hue: colorHue, base: colorBase, saturation: colorSaturation, intensity: colorIntensity })
 	}
 
 	{

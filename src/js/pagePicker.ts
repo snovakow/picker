@@ -61,6 +61,10 @@
  * colour under the pointer is taken as the press goes down and as it moves,
  * the eyedropper put away as it is let go, and the click after it swallowed;
  * the page's input keeps its focus through it, and the picker stays open.
+ *
+ * Its wheel is drawn by the renderer it is set to (`Renderer`), WebGL unless
+ * it is set to WebGPU, and by the other where that one cannot be had
+ * (renderer.ts).
  */
 
 import { ColourPicker, type DropperView, type Eyedropper, type PickerHost, type Uv } from './colourPicker.ts';
@@ -69,6 +73,7 @@ import { PALETTE, fontString, loadFaces } from './paint.ts';
 import { inBox, type Box, type Font, type Laid, type TextMeasure, type WidgetState } from './layout.ts';
 import { cssColour, type ColourWidget, type WidgetEvent } from './options.ts';
 import { DRAG_SLOP, TOUCH_SLOP, screenPopoverRect } from './pointer.ts';
+import { RENDERERS, rendererOf, type Renderer } from './renderer.ts';
 import type { DockButton } from './pickerView.ts';
 import type { ColourWell } from './colourWell.ts';
 
@@ -91,6 +96,8 @@ export interface PagePickerOptions {
 	eyedropper?: Eyedropper;
 	/** Where the picker stands (`Docking`); `auto` where left out. */
 	docking?: Docking;
+	/** What the picker's wheel is drawn by (`Renderer`); WebGL where left out. */
+	renderer?: Renderer;
 }
 
 /** What a well gives the page's picker it joins: itself, its colour widget and canvas, and what the picker reads of it and tells it. */
@@ -203,6 +210,7 @@ export class PagePicker implements PickerHost, InputHost {
 	/** The view whose cursor is the eyedropper's crosshair; null while none is. */
 	private crosshairOn: HTMLElement | null = null;
 	private dockingSet: Docking;
+	private rendererSet: Renderer;
 	/** In `auto`, whether the viewer last popped the picker out, which the next opening keeps. */
 	private wantsOut = false;
 	/** Whether the browser refused the picker its window in `popout`, which stands it in the page until it shuts. */
@@ -223,12 +231,13 @@ export class PagePicker implements PickerHost, InputHost {
 	private readonly listened: Listened[] = [];
 
 	/**
-	 * @param options - The eyedropper the picker shows, and where it stands
+	 * @param options - The eyedropper the picker shows, where it stands, and what its wheel is drawn by
 	 */
 	constructor(options: PagePickerOptions = {}) {
 		loadFaces();
 		this.eyedropperSet = options.eyedropper ?? SCREEN;
 		this.dockingSet = DOCKINGS.includes(options.docking as Docking) ? options.docking! : 'auto';
+		this.rendererSet = rendererOf(options.renderer);
 		this.windowName = `colourPicker${++made}`;
 		this.picker = new ColourPicker(this);
 		const popover = this.picker.canvas;
@@ -311,6 +320,18 @@ export class PagePicker implements PickerHost, InputHost {
 		this.wantsOut = false;
 		this.refused = false;
 		this.restandOpen();
+	}
+
+	/** What the picker's wheel is drawn by. */
+	get renderer(): Renderer {
+		return this.rendererSet;
+	}
+
+	/** Changes what the picker's wheel is drawn by: an open picker is painted again by it. */
+	setRenderer(renderer: Renderer): void {
+		if (!RENDERERS.includes(renderer) || renderer === this.rendererSet) return;
+		this.rendererSet = renderer;
+		this.picker.relay();
 	}
 
 	/** Whether the picker stands in a window of its own. */

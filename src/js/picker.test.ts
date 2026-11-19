@@ -9,10 +9,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./wheel.ts', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('./wheel.ts')>();
-	return { ...actual, makeWheelRenderer: () => ({ canvas: document.createElement('canvas'), draw: () => { } }) };
-});
+vi.mock('./wheelWebGL.ts', () => ({ makeWebGLWheel: (canvas: HTMLCanvasElement = document.createElement('canvas')) => ({ canvas, ready: true, draw: () => true }) }));
 
 /** A context every call on which does nothing, its gradients a stop that takes none. */
 const inertContext = () => new Proxy<Record<string | symbol, unknown>>({}, {

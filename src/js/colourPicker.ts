@@ -5,7 +5,8 @@
  * what a press on it holds, paints itself into a canvas of its own, and
  * works the colour through its host (`PickerHost`), which owns the widget's
  * state, the page's input, where the picker stands and what it is drawn on.
- * Its layout and maths are pickerView.ts's.
+ * Its layout and maths are pickerView.ts's, and its wheel is drawn by the
+ * renderer its host sets (renderer.ts).
  *
  * A host keeps this order, which the picker's behaviour rests on:
  * - `forgetPress` wherever a press that set the colour at its point is
@@ -49,7 +50,8 @@
 
 import { CHANNELS, COLOUR_SPACES, SWATCHES, readChannel, type ColourSpace, type Hsv } from './colour.ts';
 import { DROPPER_TIPS, DRAGGED_REGIONS, channelsOf, colourAtRegion, fieldBox, fieldChain, fieldText, layoutPicker, paintPicker, pickerMono, pickerRegionAt, sameRegion, squareColour, termsAtSquare, termsColour, termsKeeping, termsOf, termsWithChannel, wheelGeometryOf, withSquare, type DockButton, type DropperTier, type PickerLayout, type PickerTerms, type Region } from './pickerView.ts';
-import { hueOfAngle, makeWheelRenderer, type Rgb, type WheelGeometry, type WheelRenderer, type WheelTerms } from './wheel.ts';
+import { hueOfAngle, type Rgb } from './wheel.ts';
+import { rendererOf, wheelImage, type Renderer } from './renderer.ts';
 import { pageInput, pageInputMade, type InputHost, type InputKind, type InputLook, type PageInput } from './input.ts';
 import { PALETTE, fieldLine, fieldRadius, fontFamilies } from './paint.ts';
 import { CONTROL, inBox, type Box, type Laid, type TextMeasure, type WidgetState } from './layout.ts';
@@ -107,6 +109,8 @@ export interface PickerHost {
 	readonly dockButton?: DockButton | null;
 	/** The dock button clicked: the host pops the picker out or docks it back, and lays it out again (`relay`). */
 	dockClicked?(): void;
+	/** What the picker's wheel is drawn by (`Renderer`): the one the host's own scene draws by, as a three.js scene's WebGLRenderer or WebGPURenderer does; WebGL where left out or none that reads. Read as the picker is painted, which the host asks for (`relay`) as it changes. */
+	readonly renderer?: Renderer;
 }
 
 /** The eyedropper's modes, as `Eyedropper` names them. */
@@ -239,37 +243,6 @@ interface Press {
 const carriedBy = (layout: PickerLayout, offset: { x: number; y: number }): PickerLayout =>
 	offset.x === 0 && offset.y === 0 ? layout : { ...layout, box: { ...layout.box, x: layout.box.x + offset.x, y: layout.box.y + offset.y } };
 
-/**
- * The one wheel renderer every picker draws with, made as the first wheel is
- * painted, with the wheel's context parameters (`WHEEL_CONTEXT`), as the
- * dialog's wheel is, and let go as its context is lost, so the next paint
- * makes it again; null while there is none, and where the page gives no
- * context.
- */
-let wheelRenderer: WheelRenderer | null = null;
-
-/** Whether the page refused the renderer its context, so no paint asks again. */
-let wheelRefused = false;
-
-/** The wheel drawn for a geometry and a colour's terms, on the shared renderer's canvas, to be copied in the same step; null where no renderer can be made. */
-const wheelImage = (geometry: WheelGeometry, terms: WheelTerms): HTMLCanvasElement | null => {
-	if (!wheelRenderer) {
-		if (wheelRefused) return null;
-		try {
-			const made = makeWheelRenderer();
-			made.canvas.addEventListener('webglcontextlost', () => {
-				if (wheelRenderer === made) wheelRenderer = null;
-			});
-			wheelRenderer = made;
-		} catch {
-			wheelRefused = true;
-			return null;
-		}
-	}
-	wheelRenderer.draw(geometry, terms);
-	return wheelRenderer.canvas;
-};
-
 /** A number held between two bounds. */
 const clamp = (value: number, low: number, high: number): number => Math.max(low, Math.min(high, value));
 
@@ -298,6 +271,8 @@ export class ColourPicker {
 	/** The canvas the picker is painted into, a box of the host's pixels at its resolution. */
 	readonly canvas: HTMLCanvasElement;
 	private readonly ctx: CanvasRenderingContext2D;
+	/** Paints the open picker again as the renderer its wheel waited on comes, or goes (`wheelImage`). */
+	private readonly wheelCame = (): void => this.paintThePicker();
 
 	constructor(host: PickerHost) {
 		this.host = host;
@@ -851,9 +826,11 @@ export class ColourPicker {
 
 	/**
 	 * Paints the open picker into its canvas, and tells the host. In wheel the
-	 * wheel is drawn first by the shared renderer, at the wheel's square times
-	 * the host's resolution, and copied in the same step, since the
-	 * renderer's canvas keeps no drawing between tasks.
+	 * wheel is drawn first by the renderer the host sets (`renderer`), at the
+	 * wheel's square times the host's resolution, and copied in the same
+	 * step, since the renderer's canvas keeps no drawing between tasks; while
+	 * no renderer can draw it yet the picker is painted without it, and again
+	 * as one can (`wheelImage`).
 	 */
 	private paintThePicker(): void {
 		const picker = this.popover;
@@ -861,7 +838,7 @@ export class ColourPicker {
 		const { layout } = picker;
 		const { ctx, resized } = this.popoverContext(layout.box);
 		const { terms } = picker;
-		const wheel = layout.wheel ? wheelImage(wheelGeometryOf(layout.wheel, this.host.resolution), { unit: terms.unit, hue: terms.hue, base: picker.colour, saturation: terms.saturation, intensity: terms.intensity }) : null;
+		const wheel = layout.wheel ? wheelImage(rendererOf(this.host.renderer), wheelGeometryOf(layout.wheel, this.host.resolution), { unit: terms.unit, hue: terms.hue, base: picker.colour, saturation: terms.saturation, intensity: terms.intensity }, this.wheelCame) : null;
 		const dropper = { armed: picker.dropper.armed || picker.dropper.abort !== null, tip: this.tipShown(picker), unavailable: this.eyedropperOf(layout.widget)?.tier === 'unavailable' };
 		paintPicker(ctx, layout, { colour: picker.colour, hex: this.host.stateOf(layout.widget).text, old: picker.old, oldAlpha: picker.oldAlpha, lit: picker.lit, name: picker.name, terms, bar: picker.bar, space: picker.space, field: picker.field, dropper }, wheel);
 		this.host.popoverPainted(resized);

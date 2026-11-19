@@ -6,9 +6,11 @@
  * standing on it, pressed, moved, released, clicked and hovered, and the
  * page's input handed to it. The picker is opened in the mode last chosen on
  * any picker's tabs, pressed, dragged, carried, clicked, keyed and shut, its
- * wheel's renderer a stand-in that records each draw, its painter its own
- * recording the eyedropper each paint draws, and its fields given
- * the page's input in turn, typed into, stepped, walked by Tab and left.
+ * wheel's renderer a stand-in for WebGL's that records each draw, whose
+ * context the case may give later, with the renderer each paint asked for
+ * recorded, its painter its own recording the eyedropper each paint draws,
+ * and its fields given the page's input in turn, typed into, stepped,
+ * walked by Tab and left.
  * jsdom has no 2D context, so a canvas is given one that does nothing, every
  * measure 0. The stand-in host stands the picker at the box it is laid out
  * at, moving it nowhere (`standing`).
@@ -18,18 +20,39 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 /** Every draw the wheel's renderer was asked for: the geometry and the colour's terms. */
 const wheelDraws = vi.hoisted(() => [] as { width: number; height: number; size: number; ratio: number; hue: number[]; base: number[]; saturation: number; intensity: number }[]);
 
+/** The WebGL stand-ins made, each with what it tells as its context comes or goes, and whether the next is made waiting for its context. */
+const glStandIn = vi.hoisted(() => ({ waits: false, made: [] as { ready: boolean; events: { ready(): void; lost(): void } }[] }));
+
 // jsdom has no WebGL: the renderer alone is replaced by one that records
 // what it is asked to draw, and the wheel's maths stay the module's own.
-vi.mock('./wheel.ts', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('./wheel.ts')>();
-	return {
-		...actual,
-		makeWheelRenderer: () => ({
-			canvas: document.createElement('canvas'),
+vi.mock('./wheelWebGL.ts', () => ({
+	makeWebGLWheel: (canvas: HTMLCanvasElement, events: { ready(): void; lost(): void }) => {
+		const made = {
+			canvas,
+			ready: !glStandIn.waits,
+			events,
 			draw: (geometry: { width: number; height: number; size: number; ratio: number }, terms: { hue: number[]; base: number[]; saturation: number; intensity: number }) => {
 				wheelDraws.push({ width: geometry.width, height: geometry.height, size: geometry.size, ratio: geometry.ratio, hue: [...terms.hue], base: [...terms.base], saturation: terms.saturation, intensity: terms.intensity });
+				return true;
 			},
-		}),
+		};
+		glStandIn.made.push(made);
+		return made;
+	},
+}));
+
+/** The renderer each paint of the picker asked its wheel of. */
+const rendererAsks = vi.hoisted(() => [] as string[]);
+
+// What draws the wheel stays the module's own, each renderer asked for recorded.
+vi.mock('./renderer.ts', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./renderer.ts')>();
+	return {
+		...actual,
+		wheelImage: (...args: Parameters<typeof actual.wheelImage>) => {
+			rendererAsks.push(args[0]);
+			return actual.wheelImage(...args);
+		},
 	};
 });
 
@@ -49,6 +72,7 @@ vi.mock('./pickerView.ts', async (importOriginal) => {
 });
 
 import { ColourPicker, forgetChosenMode, type Eyedropper, type PickerHost } from './colourPicker.ts';
+import { forgetRenderers, type Renderer } from './renderer.ts';
 import { DRAGGED_REGIONS, DROPPER_TIPS, barShare, channelsOf, pickerRegionAt, wheelGeometryOf, type DockButton, type PickerLayout } from './pickerView.ts';
 import { readColourOptions, swatchesOf, type ColourOptions, type ColourWidget, type WidgetEvent } from './options.ts';
 import { pageInput, pageInputMade, resetPageInput, type InputHost, type InputLook } from './input.ts';
@@ -70,6 +94,11 @@ const inertContext = () => new Proxy<Record<string | symbol, unknown>>({ globalA
 
 beforeEach(() => {
 	dropperPaints.length = 0;
+	rendererAsks.length = 0;
+	wheelDraws.length = 0;
+	forgetRenderers();
+	glStandIn.waits = false;
+	glStandIn.made.length = 0;
 	vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => inertContext() as unknown as CanvasRenderingContext2D);
 });
 
@@ -140,6 +169,8 @@ class TestPanel implements PickerHost, InputHost {
 	onEvent: ((widget: string, event: string) => void) | null = null;
 	/** The eyedropper it sets: by default one that picks from its own view, as a 3D host's scene, whose presses it takes itself and hands the colour under them to the picker (`takeDropped`). */
 	eyedropper: Eyedropper<object> = { mode: 'view', view: OWN_VIEW };
+	/** What the picker's wheel is drawn by, as a scene's own renderer would have it; left unset, WebGL. */
+	renderer: Renderer | undefined = undefined;
 	/** The dock button it has the picker show, none by default, and how many times it was clicked. */
 	dockButton: DockButton | null = null;
 	dockClicks = 0;
@@ -248,6 +279,12 @@ class TestPanel implements PickerHost, InputHost {
 	setEyedropper(eyedropper: Eyedropper<object>): void {
 		this.eyedropper = eyedropper;
 		this.picker.dropperChanged();
+	}
+
+	/** Changes what the picker's wheel is drawn by, the open picker painted again by it, as a host does. */
+	setRenderer(renderer: Renderer | undefined): void {
+		this.renderer = renderer;
+		this.picker.relay();
 	}
 
 	/** Changes the dock button it has the picker show, the picker laid out again. */
@@ -800,6 +837,46 @@ describe('a colour\'s picker', () => {
 		clickOn(named, centre(pickerOf(named)!.layout.names[4]));
 		expect(named.get('c', 'value')).toBe(SWATCHES[4].hex);
 		expect(wheelDraws).toHaveLength(0);
+	});
+
+	it('asks its wheel of the renderer its host sets, WebGL where it sets none or one that does not read, a wheel asked of WebGPU drawn by WebGL while no WebGPU renderer is built', () => {
+		const { panel, open } = coloured({});
+		open();
+		expect(rendererAsks).toEqual(['webgl']);
+		expect(wheelDraws).toHaveLength(1);
+		panel.setRenderer('webgpu');
+		expect(rendererAsks.at(-1)).toBe('webgpu');
+		expect(wheelDraws).toHaveLength(2);
+		// One renderer, WebGL's, shared by both.
+		expect(glStandIn.made).toHaveLength(1);
+		panel.setRenderer('sideways' as Renderer);
+		expect(rendererAsks.at(-1)).toBe('webgl');
+	});
+
+	it('paints the picker without its wheel while its renderer\'s context is to come, and again with the wheel as it comes, but not once shut', () => {
+		glStandIn.waits = true;
+		const { panel, open } = coloured({});
+		open();
+		expect(panel.openColor?.id).toBe('c');
+		expect(wheelDraws).toHaveLength(0);
+		const paints = dropperPaints.length;
+		expect(paints).toBeGreaterThan(0);
+		const [made] = glStandIn.made;
+		made.ready = true;
+		made.events.ready();
+		expect(wheelDraws).toHaveLength(1);
+		expect(dropperPaints).toHaveLength(paints + 1);
+		// Shut before its renderer's context came, it is painted no more as the context comes.
+		forgetRenderers();
+		glStandIn.made.length = 0;
+		panel.setRenderer(undefined);
+		panel.closePicker();
+		const shutPaints = dropperPaints.length;
+		const [later] = glStandIn.made;
+		later.ready = true;
+		later.events.ready();
+		expect(dropperPaints).toHaveLength(shutPaints);
+		expect(wheelDraws).toHaveLength(1);
 	});
 
 	it('sets the alpha by a press on the bar where the colour carries one, read back as #rrggbbaa, and offers no bar without it', () => {

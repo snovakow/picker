@@ -96,7 +96,8 @@ A script opens it on a well with `open` and shuts it with `close`, and reads the
 the focus (`well`) and the one it is open on (`openWell`). It sets the eyedropper every well
 shows unless the well sets its own (`setEyedropper`), and where the picker stands
 (`setDocking`), and in `auto` pops it out and docks it back as its button does (`popOut`,
-`dock`, `poppedOut`). `dispose` takes the picker away, its wells with no picker after it.
+`dock`, `poppedOut`). It sets what draws its wheel (`setRenderer`, below). `dispose` takes the
+picker away, its wells with no picker after it.
 
 Where it stands is its docking:
 
@@ -139,12 +140,48 @@ or in VR, is another:
   picker each colour it reads (`take`);
 - it may show the dock button and answer it (`dockButton`, `dockClicked`), and give the
   picker an input of its own where the picker stands in another document (`fieldInput`), as a
-  page's picker does for its window; a host in a 3D scene needs neither.
+  page's picker does for its window; a host in a 3D scene needs neither;
+- it may set what draws the picker's wheel (`renderer`, below), WebGL where it sets none.
 
 A host keeps the order the picker's behaviour rests on, which `colourPicker.ts`'s header
 lists: when a press is forgotten before its click, when the picker is laid out again, and what
 shutting it does, in order. The picker's own tests run it on a stand-in for such a host, which
 draws on planes and hits them with points of a plane (`TestPanel` in `colourPicker.test.ts`).
+
+## What draws the wheel
+
+The picker draws its wheel and triangle on the GPU and copies them into its own canvas as it
+paints. What draws them is its renderer (`Renderer`): `webgl`, the default, or `webgpu`. A
+page's picker takes it as an option (`new PagePicker({ renderer: 'webgpu' })`) or from
+`setRenderer`, and another host sets it as `renderer`, so a page or a scene that draws by one
+has the wheel drawn the same way. Every picker shares one renderer of each kind, made on a
+canvas of its own as the first wheel asks for it.
+
+Where the renderer set can't be had, as where the browser gives it no context, the other draws
+the wheel, and with neither the picker shows no wheel. A renderer whose context comes later
+leaves the wheel out until it comes, and the picker is painted again as it does. One whose
+context is lost is made again as the next wheel asks; one whose context never came is not asked
+for again.
+
+This version builds only WebGL's renderer, so a picker set to `webgpu` has its wheel drawn by
+WebGL.
+
+In a three.js scene the picker's canvas is a texture under either renderer, `WebGLRenderer`
+or `WebGPURenderer`:
+
+```ts
+const texture = new THREE.CanvasTexture(picker.canvas);
+texture.colorSpace = THREE.SRGBColorSpace;
+const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+```
+
+The host sets `texture.needsUpdate` as the picker tells it the canvas was painted
+(`popoverPainted`), and makes a new texture where it says the canvas was resized. A ray's hit
+on the plane gives the `uv` the picker takes as a point of its plane. The picker's renderer is
+set to match the scene's: `webgl` under `WebGLRenderer`, `webgpu` under `WebGPURenderer`. This
+was checked in Chrome on 2026-11-18 with three.js r187, its `WebGPURenderer` running on WebGPU
+itself: the picker's colours showed true to their bytes under both, a raycast click landed on
+the point aimed at and set the colour there, and a lost wheel context was made again.
 
 ## The eyedropper
 
@@ -193,7 +230,9 @@ armed on it.
 | `src/js/pagePicker.ts` | The page's picker: one picker the page's wells share, open on one at a time, in the page or in a window of its own, with the presses on its eyedropper's view |
 | `src/js/colourPicker.ts` | The picker as it runs: what is open, a press on it, its keys, its fields, its eyedropper, its painting, each worked through its host |
 | `src/js/pickerView.ts` | The picker's layout, regions, colour maths and painting, the eyedropper's among them |
-| `src/js/wheel.ts` | The colour wheel and triangle: their maths and their WebGL renderer |
+| `src/js/wheel.ts` | The colour wheel and triangle: their maths |
+| `src/js/renderer.ts` | What draws the wheel, WebGL or WebGPU: one shared renderer of each, the other drawing where the one set can't be had |
+| `src/js/wheelWebGL.ts` | The wheel drawn by WebGL |
 | `src/js/colour.ts` | The colour maths, the standard colours, the channel bars, the checkerboard |
 | `src/js/options.ts` | A colour widget's options, and the widget they are read into |
 | `src/js/layout.ts` | The box, font, style and state types, a widget's measures and its style resolved, a colour widget laid out on its own |
@@ -217,6 +256,8 @@ where a test needs a DOM:
   eyedropper's press on the view and the app's own pick, and the picker's window, a stand-in
   over a document of its own;
 - `pickerView.test.ts`: the picker's layout, regions and painting, the eyedropper's among them;
+- `renderer.test.ts`: what draws the wheel: the renderer set or the other, shared, on a
+  stand-in for WebGL's whose context comes at once, later or never, or is lost;
 - `picker.test.ts`: the dialog's drags and the faces it loads;
 - the rest: a widget's options, and each module's colour maths, layout, painting, input and
   press rules.

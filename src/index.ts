@@ -4,8 +4,9 @@
  * On a page: a colour well (`ColourWell`), made from its options; the page's
  * picker it joins (`PagePicker`, the page's own from `pagePicker`), which
  * opens on one well at a time, in the page or in a window of its own
- * (`Docking`); the eyedropper it shows (`Eyedropper`); and the Color Picker
- * dialog (`pickerShow`, `pickerUpdate`).
+ * (`Docking`); the eyedropper it shows (`Eyedropper`); what draws its wheel,
+ * WebGL or WebGPU (`Renderer`); and the Color Picker dialog (`pickerShow`,
+ * `pickerUpdate`).
  *
  * In a host of one's own, a 3D scene or VR among them: the picker
  * (`ColourPicker`) and what it asks of its host (`PickerHost`), the colour
@@ -20,6 +21,7 @@ export { DOCKINGS, PagePicker, pagePicker, type Docking, type PagePickerOptions 
 export { PICKER_MODES, readColourOptions, swatchesOf, type ColourOptions, type ColourStyle, type ColourWidget, type PickerMode, type WidgetEvent, type WidgetStyle } from './js/options.ts';
 export { ColourPicker, EYEDROPPER_MODES, forgetChosenMode, type CustomPick, type DropperView, type Eyedropper, type EyedropperMode, type PickerHost, type Uv } from './js/colourPicker.ts';
 export { DROPPER_TIPS, type DockButton } from './js/pickerView.ts';
+export { RENDERERS, type Renderer } from './js/renderer.ts';
 export { pickerShow, pickerUpdate } from './js/picker.js';
 
 export { layoutWell, restingState, type Box, type Font, type Laid, type ResolvedStyle, type TextMeasure, type WidgetState } from './js/layout.ts';

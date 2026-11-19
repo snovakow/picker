@@ -9,24 +9,39 @@
  * one anywhere else, the picker staying open until its well is clicked
  * again, it is shut, or its well leaves the page or is hidden — the value
  * written as a script writes it, the page's input placed over the picker's
- * field, the eyedropper's view, and the picker popped out into a window of
- * its own. jsdom has no 2D context, no layout, no pointer events and no
- * windows of its own, so a canvas is given a context that does nothing,
- * every measure 0, a well's canvas a rect of the page pinned by the test,
- * none where it or what holds it is display: none, a pointer event is a
- * mouse event carrying a pointer's fields, and the picker's window is a
- * stand-in over a document of its own.
+ * field, the eyedropper's view, the renderer its wheel is drawn by, and the
+ * picker popped out into a window of its own. jsdom has no 2D context, no
+ * layout, no pointer events, no WebGL and no windows of its own, so a canvas
+ * is given a context that does nothing, every measure 0, the wheel's WebGL
+ * renderer a stand-in that draws nothing, each renderer a paint asks for
+ * recorded, a well's canvas a rect of the page pinned by the test, none
+ * where it or what holds it is display: none, a pointer event is a mouse
+ * event carrying a pointer's fields, and the picker's window is a stand-in
+ * over a document of its own.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./wheel.ts', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('./wheel.ts')>();
-	return { ...actual, makeWheelRenderer: () => ({ canvas: document.createElement('canvas'), draw: () => { } }) };
+vi.mock('./wheelWebGL.ts', () => ({ makeWebGLWheel: (canvas: HTMLCanvasElement = document.createElement('canvas')) => ({ canvas, ready: true, draw: () => true }) }));
+
+/** The renderer each paint of a picker asked its wheel of. */
+const rendererAsks = vi.hoisted(() => [] as string[]);
+
+// What draws the wheel stays the module's own, each renderer asked for recorded.
+vi.mock('./renderer.ts', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./renderer.ts')>();
+	return {
+		...actual,
+		wheelImage: (...args: Parameters<typeof actual.wheelImage>) => {
+			rendererAsks.push(args[0]);
+			return actual.wheelImage(...args);
+		},
+	};
 });
 
 import { ColourWell, type ColourWellOptions } from './colourWell.ts';
 import { PagePicker, pagePicker } from './pagePicker.ts';
 import type { Eyedropper } from './colourPicker.ts';
+import type { Renderer } from './renderer.ts';
 import { pageInput, pageInputMade, resetPageInput, type PageInput } from './input.ts';
 import { DRAG_SLOP, TOUCH_SLOP } from './pointer.ts';
 import type { PickerLayout } from './pickerView.ts';
@@ -458,6 +473,26 @@ describe('a colour well', () => {
 			expect(picker.well).toBe(one.well);
 			one.well.openPicker();
 			expect(one.well.open).toBe(true);
+		});
+
+		it('draws its wheel by the renderer it is set to, WebGL unless its options or a script set WebGPU, an open picker painted again as it changes and one that does not read left out', () => {
+			expect(pagePicker().renderer).toBe('webgl');
+			const picker = pickerOf({ renderer: 'webgpu' });
+			expect(picker.renderer).toBe('webgpu');
+			const { well } = wellAt({ picker });
+			rendererAsks.length = 0;
+			tap(well.canvas, [150, 70]);
+			expect(rendererAsks.length).toBeGreaterThan(0);
+			expect(rendererAsks.every((asked) => asked === 'webgpu')).toBe(true);
+			picker.setRenderer('webgl');
+			expect(picker.renderer).toBe('webgl');
+			expect(rendererAsks.at(-1)).toBe('webgl');
+			const asked = rendererAsks.length;
+			picker.setRenderer('webgl');
+			picker.setRenderer('sideways' as Renderer);
+			expect(picker.renderer).toBe('webgl');
+			expect(rendererAsks).toHaveLength(asked);
+			expect(pickerOf({ renderer: 'sideways' as Renderer }).renderer).toBe('webgl');
 		});
 
 		it('shuts every other picker on the page as one opens', () => {
