@@ -6,14 +6,16 @@
  * the pointer taken — a press held from the moment it goes down, a drag past
  * a drag's start, the click after a drag swallowed, a press let go as
  * cancelled, the page's input kept through a press on a well and let go by
- * one anywhere else — the value written as a script writes it, the page's
- * input placed over the picker's field, the eyedropper's view, and the
- * picker popped out into a window of its own. jsdom has no 2D context, no
- * layout, no pointer events and no windows of its own, so a canvas is given
- * a context that does nothing, every measure 0, a well's canvas a rect of
- * the page pinned by the test, a pointer event is a mouse event carrying a
- * pointer's fields, and the picker's window is a stand-in over a document
- * of its own.
+ * one anywhere else, the picker staying open until its well is clicked
+ * again, it is shut, or its well leaves the page or is hidden — the value
+ * written as a script writes it, the page's input placed over the picker's
+ * field, the eyedropper's view, and the picker popped out into a window of
+ * its own. jsdom has no 2D context, no layout, no pointer events and no
+ * windows of its own, so a canvas is given a context that does nothing,
+ * every measure 0, a well's canvas a rect of the page pinned by the test,
+ * none where it or what holds it is display: none, a pointer event is a
+ * mouse event carrying a pointer's fields, and the picker's window is a
+ * stand-in over a document of its own.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,11 +64,11 @@ const pickerOf = (options: ConstructorParameters<typeof PagePicker>[0] = {}): Pa
 
 /** What a page's picker holds, as the cases read it: its colour picker, with the canvas it is painted into and the picker while it is open, and its window. */
 const insideOf = (picker: PagePicker) => picker as unknown as {
-	picker: { canvas: HTMLCanvasElement; popover: { layout: PickerLayout; colour: number[]; terms: { alpha: number } } | null };
+	picker: { canvas: HTMLCanvasElement; popover: { layout: PickerLayout; colour: number[]; terms: { alpha: number }; field: unknown } | null };
 	popout: { window: Window; input: PageInput } | null;
 };
 
-/** A well made from its options, orange unless they say otherwise, joining the page's own picker unless they name another, its canvas on the page with its top-left corner at a point of the window, painted, and what it tells recorded. */
+/** A well made from its options, orange unless they say otherwise, joining the page's own picker unless they name another, its canvas on the page with its top-left corner at a point of the window, which the case may move, painted, and what it tells recorded. */
 const wellAt = (options: ColourWellOptions = {}, at: [number, number] = [100, 50]) => {
 	const told: string[] = [];
 	const well = new ColourWell({ value: '#ff8b30', ...options, onEvent: (event) => { told.push(event); } });
@@ -74,6 +76,10 @@ const wellAt = (options: ColourWellOptions = {}, at: [number, number] = [100, 50
 	document.body.appendChild(well.canvas);
 	const size = () => ({ w: parseFloat(well.canvas.style.width), h: parseFloat(well.canvas.style.height) });
 	well.canvas.getBoundingClientRect = () => {
+		// Laid out nowhere where it or what holds it is display: none, as a browser lays it out.
+		for (let each: Element | null = well.canvas; each; each = each.parentElement) {
+			if (getComputedStyle(each).display === 'none') return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) };
+		}
 		const { w, h } = size();
 		return { left: at[0], top: at[1], right: at[0] + w, bottom: at[1] + h, width: w, height: h, x: at[0], y: at[1], toJSON: () => ({}) };
 	};
@@ -95,6 +101,9 @@ const pointer = (type: string, at: [number, number], pointerId = 1, pointerType 
 const mouse = (type: string, at: [number, number]) => new MouseEvent(type, { button: 0, clientX: at[0], clientY: at[1], bubbles: true, cancelable: true });
 
 const key = (target: EventTarget, k: string) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+
+/** The next frame, after the picker's own look at its well on it. */
+const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
 
 /** A press let go where it went down, and the click the browser sends after it. */
 const tap = (target: EventTarget, at: [number, number], pointerType = 'mouse') => {
@@ -231,7 +240,7 @@ describe('a colour well', () => {
 		}
 	});
 
-	it('keeps the browser\'s focus change off a press on the well or its picker, and shuts the picker and lets the input go on a press anywhere else on the page, the input\'s own element aside', () => {
+	it('keeps the browser\'s focus change off a press on the well or its picker, and lets the input go on a press anywhere else on the page, the input\'s own element aside, the picker staying open', () => {
 		const { well, popover } = wellAt();
 		tap(well.canvas, [150, 70]);
 		for (const canvas of [well.canvas, popover]) {
@@ -242,7 +251,85 @@ describe('a colour well', () => {
 		pageInput().input.dispatchEvent(pointer('pointerdown', [0, 0]));
 		expect(well.open).toBe(true);
 		document.body.dispatchEvent(pointer('pointerdown', [600, 600]));
+		expect(well.open).toBe(true);
+		expect(pageInput().focused).toBe(false);
+	});
+
+	it('keeps its picker open as the focus goes elsewhere, the well drawn resting and a field that held the input letting it go, and takes the focus back on a press on the picker, Escape then shutting it with the colour kept', () => {
+		const { well, popover, layout } = wellAt();
+		tap(well.canvas, [150, 70]);
+		const hex = onPicker(popover, centre(layout().hex));
+		popover.dispatchEvent(pointer('pointerdown', hex));
+		popover.dispatchEvent(pointer('pointerup', hex));
+		expect(pageInput().shown).toBe(true);
+		// The focus goes to an input of the page's own.
+		const other = document.createElement('input');
+		document.body.appendChild(other);
+		other.focus();
+		expect(pageInput().focused).toBe(false);
+		expect(pageInput().shown).toBe(false);
+		expect(well.open).toBe(true);
+		expect(well.picker.well).toBeNull();
+		expect(insideOf(well.picker).picker.popover!.field).toBeNull();
+		expect(popover.style.display).toBe('block');
+		// A press on the picker's wheel gives the well the focus back, and sets the colour there.
+		const ring = onPicker(popover, onWheel(layout(), 81, 120));
+		popover.dispatchEvent(pointer('pointerdown', ring));
+		popover.dispatchEvent(pointer('pointerup', ring));
+		expect(pageInput().focusedHost).toBe(well.picker);
+		expect(well.picker.well).toBe(well);
+		expect(document.activeElement).toBe(pageInput().input);
+		const set = well.value;
+		expect(set).not.toBe('#ff8b30');
+		key(pageInput().input, 'Escape');
 		expect(well.open).toBe(false);
+		expect(well.value).toBe(set);
+		expect(pageInput().focusedHost).toBe(well.picker);
+	});
+
+	it('shuts its picker on the next frame as the well leaves the page or is hidden, letting the focus go, but not as it scrolls out of the window, and stands the picker against it again as it moves on the page', async () => {
+		// Moved on the page with no scroll or resize, as what stands above it grows.
+		const at: [number, number] = [100, 50];
+		const { well, popover } = wellAt({}, at);
+		tap(well.canvas, [150, 70]);
+		expect(popover.style.top).toBe('92px');
+		at[1] = 80;
+		await frame();
+		expect(popover.style.top).toBe('122px');
+		// Scrolled out of the window, it stays open, held inside the window.
+		at[1] = -400;
+		await frame();
+		expect(well.open).toBe(true);
+		expect(parseFloat(popover.style.top)).toBeGreaterThanOrEqual(0);
+		at[1] = 50;
+		await frame();
+		expect(popover.style.top).toBe('92px');
+		// Hidden, itself or by what holds it: display: none, or visibility: hidden.
+		well.canvas.style.display = 'none';
+		await frame();
+		expect(well.open).toBe(false);
+		expect(pageInput().focused).toBe(false);
+		well.canvas.style.display = '';
+		const holder = document.createElement('div');
+		document.body.appendChild(holder);
+		holder.appendChild(well.canvas);
+		tap(well.canvas, [150, 70]);
+		expect(well.open).toBe(true);
+		holder.style.visibility = 'hidden';
+		await frame();
+		expect(well.open).toBe(false);
+		expect(pageInput().focused).toBe(false);
+		// Hidden, it opens no picker.
+		tap(well.canvas, [150, 70]);
+		expect(well.open).toBe(false);
+		holder.style.visibility = '';
+		// Gone from the page.
+		tap(well.canvas, [150, 70]);
+		expect(well.open).toBe(true);
+		holder.remove();
+		await frame();
+		expect(well.open).toBe(false);
+		expect(popover.style.display).toBe('none');
 		expect(pageInput().focused).toBe(false);
 	});
 
@@ -292,7 +379,7 @@ describe('a colour well', () => {
 		const input = pageInput();
 		expect(input.shown).toBe(true);
 		expect([input.input.style.left, input.input.style.top, input.input.style.width, input.input.style.height]).toEqual([`${100 + hex.x}px`, `${92 + hex.y}px`, `${hex.w}px`, `${hex.h}px`]);
-		key(input.input, 'Escape');
+		key(input.input, 'Enter');
 		expect(input.shown).toBe(false);
 		expect(well.open).toBe(true);
 		expect(pageInputMade()?.focusedHost).toBe(well.picker);
@@ -424,13 +511,14 @@ describe('a colour well', () => {
 			expect(well.open).toBe(true);
 			expect(pageInput().focused).toBe(true);
 			expect(element.style.cursor).toBe('');
-			// Put away, a press on the view is any press elsewhere: the view's own, and it shuts the picker.
+			// Put away, a press on the view is any press elsewhere: the view's own, which lets the focus go and leaves the picker open.
 			element.dispatchEvent(pointer('pointerdown', [600, 500]));
 			expect(seen).toEqual(['pointerdown']);
-			expect(well.open).toBe(false);
+			expect(well.open).toBe(true);
+			expect(pageInput().focused).toBe(false);
 		});
 
-		it('takes none as its press on the view is cancelled, puts itself away, and leaves the view\'s cursor its own as it is put away by Escape, by the picker shutting and as the eyedropper changes', () => {
+		it('takes none as its press on the view is cancelled, puts itself away, and leaves the view\'s cursor its own as it is put away by the picker shutting, by Escape among the rest, and as the eyedropper changes', () => {
 			const { element, view } = viewOf();
 			const { well, popover, layout } = wellAt({ eyedropper: { mode: 'view', view } });
 			tap(well.canvas, [150, 70]);
@@ -443,7 +531,8 @@ describe('a colour well', () => {
 			clickDropper(popover, layout);
 			key(pageInput().input, 'Escape');
 			expect(element.style.cursor).toBe('');
-			expect(well.open).toBe(true);
+			expect(well.open).toBe(false);
+			tap(well.canvas, [150, 70]);
 			clickDropper(popover, layout);
 			well.closePicker();
 			expect(element.style.cursor).toBe('');
@@ -593,7 +682,7 @@ describe('a colour well', () => {
 			expect(layout().dock!.kind).toBe('popout');
 		});
 
-		it('stands in a window of its own alone in popout, which stays as the picker moves to another well, shuts as the focus leaves the wells, and shuts the picker as the viewer shuts it', async () => {
+		it('stands in a window of its own alone in popout, which stays as the picker moves to another well and as the focus leaves the wells, and shuts the picker as the viewer shuts it', async () => {
 			const { opened } = windows();
 			const picker = pickerOf({ docking: 'popout' });
 			const one = wellAt({ picker });
@@ -606,15 +695,17 @@ describe('a colour well', () => {
 			expect(opened).toHaveLength(1);
 			expect(opened[0].window.closed).toBe(false);
 			expect(two.well.open).toBe(true);
-			// A press elsewhere on the page lets the focus go, and the window with it.
+			// A press elsewhere on the page lets the focus go, the picker and its window staying.
 			document.body.dispatchEvent(pointer('pointerdown', [900, 700]));
-			expect(two.well.open).toBe(false);
 			await stepEnds();
-			expect(opened[0].window.closed).toBe(true);
+			expect(two.well.open).toBe(true);
+			expect(opened[0].window.closed).toBe(false);
 			expect(pageInput().focused).toBe(false);
 			// The viewer shutting its window shuts the picker, the well keeping the focus.
 			tap(one.well.canvas, [150, 70]);
-			const shown = opened[1].window;
+			await stepEnds();
+			expect(opened).toHaveLength(1);
+			const shown = opened[0].window;
 			shown.dispatchEvent(new Event('pagehide'));
 			expect(one.well.open).toBe(false);
 			expect(picker.poppedOut).toBe(false);
@@ -672,7 +763,7 @@ describe('a colour well', () => {
 			expect(opened).toHaveLength(1);
 		});
 
-		it('types a field in its window through the window\'s own input, the well keeping the page\'s, and takes the window\'s keys while no field holds it', async () => {
+		it('types a field in its window through the window\'s own input, the well keeping the page\'s, and takes the window\'s keys while no field holds it, the well taking the focus back where it went elsewhere', async () => {
 			const { opened } = windows();
 			const picker = pickerOf({ docking: 'popout' });
 			const { well, popover, layout } = wellAt({ picker });
@@ -693,10 +784,42 @@ describe('a colour well', () => {
 			key(own.input, 'Enter');
 			expect(own.focused).toBe(false);
 			expect(pageInput().focusedHost).toBe(picker);
-			// A key in the window with no field holding its input works the picker: Escape puts the colour back and shuts it.
+			// With the focus gone elsewhere, a field typing through the window's input lets it go, and a key in the window is still its picker's, the well taking the focus back.
+			popover.dispatchEvent(pointer('pointerdown', centre(hex)));
+			popover.dispatchEvent(pointer('pointerup', centre(hex)));
+			expect(own.focused).toBe(true);
+			document.body.dispatchEvent(pointer('pointerdown', [900, 700]));
+			expect(pageInput().focused).toBe(false);
+			expect(own.focused).toBe(false);
+			expect(insideOf(picker).picker.popover!.field).toBeNull();
+			expect(well.open).toBe(true);
+			key(opened[0].window, 'ArrowUp');
+			expect(pageInput().focusedHost).toBe(picker);
+			expect(picker.well).toBe(well);
+			expect(well.value).not.toBe('#123456');
+			// Escape shuts it, the colour kept.
+			const kept = well.value;
 			key(opened[0].window, 'Escape');
 			expect(well.open).toBe(false);
-			expect(well.value).toBe('#ff8b30');
+			expect(well.value).toBe(kept);
+			await stepEnds();
+			expect(opened[0].window.closed).toBe(true);
+		});
+
+		it('keeps its window as the well scrolls out of the page\'s window, and shuts it with the picker as the well is hidden', async () => {
+			const { opened } = windows();
+			const picker = pickerOf({ docking: 'popout' });
+			const at: [number, number] = [100, 50];
+			const { well } = wellAt({ picker }, at);
+			tap(well.canvas, [150, 70]);
+			at[1] = -400;
+			await frame();
+			await stepEnds();
+			expect(well.open).toBe(true);
+			expect(opened[0].window.closed).toBe(false);
+			well.canvas.style.display = 'none';
+			await frame();
+			expect(well.open).toBe(false);
 			await stepEnds();
 			expect(opened[0].window.closed).toBe(true);
 		});

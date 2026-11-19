@@ -29,19 +29,18 @@
  *
  * The eyedropper takes a colour from outside the picker by the mode its host
  * sets (`Eyedropper`): the browser's own eyedropper, which picks from
- * anywhere on the screen, falling back to a view where the browser has
- * none, and with no view either drawn unavailable, its tooltip saying where
- * it works; a view the app provides, whose press while the eyedropper is
- * armed is the eyedropper's, the colour under the pointer taken through the
- * press and the eyedropper put away as it is released; the app's own pick,
- * which hands the picker each colour it takes (`CustomPick`); or none, the
- * picker showing no eyedropper. A colour it takes is taken as a named cell's
- * is, the alpha kept, and tells `change` where it changes the colour, as
- * every colour taken does. A press on the picker anywhere but the eyedropper
- * puts an armed one away, and the tooltip a click on an unavailable one
- * pinned open, as do Escape while no field holds the input, the picker
- * shutting, and the host's eyedropper changing, unless from one view to
- * another.
+ * anywhere on the screen, falling back to a view where the browser has none,
+ * and with no view either drawn unavailable, its tooltip saying where it
+ * works; a view the app provides, whose press while the eyedropper is armed
+ * is the eyedropper's, the colour under the pointer taken through the press
+ * and the eyedropper put away as it is released; the app's own pick, which
+ * hands the picker each colour it takes (`CustomPick`); or none, the picker
+ * showing no eyedropper. A colour it takes is taken as a named cell's is,
+ * the alpha kept, and tells `change` where it changes the colour, as every
+ * colour taken does. A press on the picker anywhere but the eyedropper puts
+ * an armed one away, and the tooltip a click on an unavailable one pinned
+ * open, as do the picker shutting, which Escape does, and the host's
+ * eyedropper changing, unless from one view to another.
  *
  * A host that can pop the picker out of its page into a window of its own
  * has the picker show a button for it (`dockButton`), whose click the host
@@ -184,14 +183,14 @@ export const forgetChosenMode = (): void => {
  * the colour's bytes now, the colour and alpha it opened on, the region
  * under the pointer, the named cell the keys point at, the channel bar they
  * act on, the colour space its channel fields and bars read the colour in,
- * the field holding the page's input with what is typed in it and the
- * colour it was entered on, and how far the viewer has carried it.
+ * the field holding the page's input with what is typed in it, and how far
+ * the viewer has carried it.
  */
 interface OpenPicker {
 	layout: PickerLayout;
 	mode: PickerMode;
 	terms: PickerTerms;
-	/** The colour's bytes now: the triangle's or the square's for the terms, a bar's channel set, a named cell's or a swatch's, or the colour as it stood, opened or was written by a script, as an alpha bar and keys, the old half, Escape and a write leave it. */
+	/** The colour's bytes now: the triangle's or the square's for the terms, a bar's channel set, a named cell's or a swatch's, or the colour as it stood, opened or was written by a script, as an alpha bar and keys, the old half and a write leave it. */
 	colour: Rgb;
 	old: Rgb;
 	oldAlpha: number;
@@ -206,8 +205,6 @@ interface OpenPicker {
 	field: Region | null;
 	/** The words in the field's input, as typed; empty while no field holds it. */
 	typed: string;
-	/** The colour and terms the field was entered on, or as last moved from outside the field, which Escape puts back; null while no field holds the input. */
-	entered: { colour: Rgb; terms: PickerTerms } | null;
 	/** How far the viewer has carried the picker from where its layout stands it, in the host's pixels: none as it opens, and kept as it is laid out again. */
 	offset: { x: number; y: number };
 	/** The side of its colour the host stood the picker on as the viewer began to carry it, which it keeps while it is open; null until it is carried, and on a host that stands it on no side. */
@@ -542,6 +539,26 @@ export class ColourPicker {
 	}
 
 	/**
+	 * Lets go of the field that holds the input, as the input goes elsewhere
+	 * and the picker stays open: the field painted with the colour's words
+	 * again, what was typed in it and not yet taken dropped, and the host's
+	 * own field input, where it has one, let go with it.
+	 */
+	dropField(): void {
+		const picker = this.popover;
+		if (!picker?.field) return;
+		picker.field = null;
+		picker.typed = '';
+		this.handingOff = true;
+		try {
+			this.host.fieldInput?.blur();
+		} finally {
+			this.handingOff = false;
+		}
+		this.paintThePicker();
+	}
+
+	/**
 	 * Where the field of the widget's open picker that holds the page's input
 	 * stands, for the input to be placed over it, and how it is drawn: the
 	 * picker's box in the host's pixels, the field's box in the picker's own,
@@ -825,7 +842,7 @@ export class ColourPicker {
 		this.host.closeOther();
 		const { rgb, alpha } = this.colourOf(widget);
 		const mode: PickerMode = chosenMode ?? widget.mode ?? 'wheel';
-		const picker: OpenPicker = { layout: this.layoutOf(laid, mode), mode, terms: termsOf(rgb, alpha), colour: rgb, old: rgb, oldAlpha: alpha, lit: null, name: ColourPicker.namedIndex(rgb), bar: 0, space: 'RGB', field: null, typed: '', entered: null, offset: { x: 0, y: 0 }, side: null, dropper: { armed: false, abort: null, pinned: false } };
+		const picker: OpenPicker = { layout: this.layoutOf(laid, mode), mode, terms: termsOf(rgb, alpha), colour: rgb, old: rgb, oldAlpha: alpha, lit: null, name: ColourPicker.namedIndex(rgb), bar: 0, space: 'RGB', field: null, typed: '', offset: { x: 0, y: 0 }, side: null, dropper: { armed: false, abort: null, pinned: false } };
 		this.popover = picker;
 		laid.state.open = true;
 		this.host.placePopover(picker.layout.box);
@@ -876,7 +893,7 @@ export class ColourPicker {
 			picker.colour = rgb;
 			picker.name = ColourPicker.namedIndex(rgb);
 			if (!changed) this.paintThePicker();
-			if (!typed) this.showField(picker);
+			if (!typed) this.rewriteField(picker);
 		}
 		if (changed) this.host.tell(widget, 'change');
 	}
@@ -908,8 +925,8 @@ export class ColourPicker {
 	 * the old half restores the colour the picker opened on; the space word
 	 * cycles the colour space the channel fields and the bars read the
 	 * colour in, a channel field holding the page's input rewritten in the
-	 * space's units, the colour Escape puts back kept. A field does nothing
-	 * on a click: it takes the page's input as a press on it is released.
+	 * space's units. A field does nothing on a click: it takes the page's
+	 * input as a press on it is released.
 	 *
 	 * @param uv - Where the click landed on the popover's plane
 	 * @param pressed - Whether the click follows a press that set the colour at its point
@@ -993,7 +1010,7 @@ export class ColourPicker {
 		picker.colour = rgb;
 		picker.terms = termsKeeping(rgb, alpha, picker.terms);
 		picker.name = ColourPicker.namedIndex(rgb);
-		this.showField(picker);
+		this.rewriteField(picker);
 	}
 
 	/** Lights the region of the open picker under the pointer, painted again only where that changed. */
@@ -1006,25 +1023,24 @@ export class ColourPicker {
 
 	/**
 	 * What a key does on a focused colour: shut, Enter and Space open the
-	 * picker; open, Enter and Space shut it keeping the colour, Escape puts
-	 * an armed eyedropper away, or the browser's open one, and otherwise
-	 * restores the colour it opened on and shuts it, Shift with Page Up or
-	 * Page Down steps the alpha by a twentieth where the colour carries one,
-	 * and the rest follow the mode. In wheel Left and Right turn the hue a
-	 * degree round the ring, Up and Down move the intensity a hundredth, Page
-	 * Up and Page Down the saturation a tenth, Home and End to none and full,
-	 * Shift making an arrow's step ten. In square Left and Right move the
-	 * saturation a hundredth, Up and Down the value, Page Up and Page Down
-	 * turn the hue ten degrees, Home and End set the saturation to none and
-	 * full, Shift making an arrow's step ten. In sliders Left and Right move
-	 * to the bar before or after, Up and Down step its channel by 1, Page Up
-	 * and Page Down by 16, Home and End set it to its least and most, the
-	 * alpha's bar stepping a hundredth and a tenth, Shift making an arrow's
-	 * step ten. In names the arrows move through the cells, Up and Down along
-	 * a column and Left and Right between the two, Home and End to the first
-	 * and the last, each taking its colour at once.
-	 * An Escape on a shut picker is left to the input, which lets the focus
-	 * go.
+	 * picker; open, Enter, Space and Escape shut it, as its close does, the
+	 * colour kept as it stands and an armed eyedropper, the browser's open
+	 * one or the app's pick put away with it, Shift with Page Up or Page
+	 * Down steps the alpha by a twentieth where the colour carries one, and
+	 * the rest follow the mode. In wheel Left and Right turn the hue a
+	 * degree round the ring, Up and Down move the intensity a hundredth,
+	 * Page Up and Page Down the saturation a tenth, Home and End to none and
+	 * full, Shift making an arrow's step ten. In square Left and Right move
+	 * the saturation a hundredth, Up and Down the value, Page Up and Page
+	 * Down turn the hue ten degrees, Home and End set the saturation to none
+	 * and full, Shift making an arrow's step ten. In sliders Left and Right
+	 * move to the bar before or after, Up and Down step its channel by 1,
+	 * Page Up and Page Down by 16, Home and End set it to its least and
+	 * most, the alpha's bar stepping a hundredth and a tenth, Shift making
+	 * an arrow's step ten. In names the arrows move through the cells, Up
+	 * and Down along a column and Left and Right between the two, Home and
+	 * End to the first and the last, each taking its colour at once. An
+	 * Escape on a shut picker is left to the input, which lets the focus go.
 	 */
 	private pickerKey(widget: ColourWidget, event: KeyboardEvent): boolean {
 		const picker = this.openColor === widget ? this.popover as OpenPicker : null;
@@ -1034,18 +1050,7 @@ export class ColourPicker {
 			this.openPicker(widget);
 			return true;
 		}
-		if (key === 'Enter' || key === ' ') {
-			this.close();
-			return true;
-		}
-		// Escape puts an armed eyedropper, the browser's open one, or the tooltip a click pinned open, away, and leaves the picker and its colour as they stand.
-		if (key === 'Escape' && (picker.dropper.armed || picker.dropper.abort || picker.dropper.pinned)) {
-			this.putDropperAway();
-			return true;
-		}
-		if (key === 'Escape') {
-			picker.terms = termsKeeping(picker.old, picker.oldAlpha, picker.terms);
-			this.takeColour(widget, picker.old, picker.oldAlpha);
+		if (key === 'Enter' || key === ' ' || key === 'Escape') {
 			this.close();
 			return true;
 		}
@@ -1255,10 +1260,10 @@ export class ColourPicker {
 
 	/**
 	 * Gives one of the open picker's fields the page's input, as an input's
-	 * field: shown over the field's box with its words, typed into and worked
-	 * by key (`fieldKey`). The colour widget stays the focused widget, and
-	 * the colour as the field is entered is kept for Escape to put back. The
-	 * field already holding the input is left as it is, its words as typed.
+	 * field: shown over the field's box with its words, typed into and
+	 * worked by key (`fieldKey`). The colour widget stays the focused
+	 * widget. The field already holding the input is left as it is, its
+	 * words as typed.
 	 */
 	private focusField(region: Region): void {
 		const picker = this.popover;
@@ -1267,7 +1272,6 @@ export class ColourPicker {
 		if (this.host.focused !== widget) this.host.focus(widget);
 		picker.field = region;
 		picker.typed = this.fieldWords(picker, region);
-		picker.entered = { colour: picker.colour, terms: picker.terms };
 		this.handOff('field', picker.typed);
 		this.paintThePicker();
 	}
@@ -1278,7 +1282,6 @@ export class ColourPicker {
 		if (!picker) return;
 		picker.field = null;
 		picker.typed = '';
-		picker.entered = null;
 		this.handOff('colour', this.host.stateOf(picker.layout.widget).text);
 		this.paintThePicker();
 	}
@@ -1293,13 +1296,6 @@ export class ColourPicker {
 		if (!picker.field) return;
 		picker.typed = this.fieldWords(picker, picker.field);
 		this.fieldInput.setValue(picker.typed);
-	}
-
-	/** Writes a field's words into the page's input as the colour moves under it from outside the field, the colour as it now stands the one Escape puts back. */
-	private showField(picker: OpenPicker): void {
-		if (!picker.field) return;
-		this.rewriteField(picker);
-		picker.entered = { colour: picker.colour, terms: picker.terms };
 	}
 
 	/**
@@ -1350,15 +1346,14 @@ export class ColourPicker {
 	}
 
 	/**
-	 * A key in one of the picker's fields: Tab moves to the field after,
-	 * and past the last out to the host's next field, which shuts the
-	 * picker, or lets the focus go past the host's last; Shift and Tab to
-	 * the field before, and from the hex back to the picker's body; Enter
-	 * applies the words as they stand and returns to the body; Escape puts
-	 * back the colour the field was entered on, or as the picker last moved
-	 * it from outside the field, and returns; Up and Down step a channel or
-	 * the alpha by 1, Shift by 10, held to its range. Every other key is the
-	 * field's own.
+	 * A key in one of the picker's fields: Tab moves to the field after, and
+	 * past the last out to the host's next field, which shuts the picker, or
+	 * lets the focus go past the host's last; Shift and Tab to the field
+	 * before, and from the hex back to the picker's body; Enter applies the
+	 * words as they stand and returns to the body; Escape shuts the picker
+	 * as its close does, the colour kept as it stands and what was typed and
+	 * not yet taken dropped; Up and Down step a channel or the alpha by 1,
+	 * Shift by 10, held to its range. Every other key is the field's own.
 	 */
 	private fieldKey(picker: OpenPicker, event: KeyboardEvent): boolean {
 		const field = picker.field!;
@@ -1376,15 +1371,9 @@ export class ColourPicker {
 				this.applyField(picker, picker.typed, true);
 				this.focusBody();
 				return true;
-			case 'Escape': {
-				const entered = picker.entered;
-				if (entered) {
-					picker.terms = entered.terms;
-					this.takeColour(widget, entered.colour, entered.terms.alpha, true);
-				}
-				this.focusBody();
+			case 'Escape':
+				this.close();
 				return true;
-			}
 			case 'ArrowUp':
 			case 'ArrowDown': {
 				if (field.kind === 'hex') return false;

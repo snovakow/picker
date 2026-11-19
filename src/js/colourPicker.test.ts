@@ -664,7 +664,7 @@ describe('a colour\'s picker', () => {
 	};
 	const ORANGE: Rgb = [255, 139, 48];
 
-	it('opens on the click, its plane standing where it is laid out and nowhere while shut, and shuts on a second click, a press elsewhere, another host\'s focus and Escape, which puts back the colour it opened on', () => {
+	it('opens on the click, its plane standing where it is laid out and nowhere while shut, and shuts on a second click, a press elsewhere, another host\'s focus and Escape, which keeps the colour as it stands', () => {
 		const { panel, told } = usable();
 		const col = panel.layout!.byId.get('col')!.widget;
 		click(panel, AT.col);
@@ -703,13 +703,14 @@ describe('a colour\'s picker', () => {
 		told.length = 0;
 		pressOn(panel, onWheel(pickerOf(panel)!.layout, 81, 120));
 		panel.release(0, 0);
-		expect(panel.get('col', 'value')).not.toBe('#ff8b30');
+		const set = panel.get('col', 'value');
+		expect(set).not.toBe('#ff8b30');
 		expect(told).toEqual(['col:change', 'root:change']);
 		key('Escape');
-		expect(panel.get('col', 'value')).toBe('#ff8b30');
+		expect(panel.get('col', 'value')).toBe(set);
 		expect(panel.openColor).toBeNull();
 		expect(panel.focusedWidget).toBe(col);
-		expect(told).toEqual(['col:change', 'root:change', 'col:change', 'root:change']);
+		expect(told).toEqual(['col:change', 'root:change']);
 		key('Escape');
 		expect(panel.focusedWidget).toBeNull();
 		expect(pageInput().focused).toBe(false);
@@ -919,7 +920,7 @@ describe('a colour\'s picker', () => {
 		expect(panel.openColor).toBeNull();
 	});
 
-	it('is worked by key: Space and Enter open it and Enter shuts it, the arrows, Page Up, Page Down, Home and End move the wheel\'s terms, Shift tenfold, and Escape puts the colour back', () => {
+	it('is worked by key: Space and Enter open it and Enter shuts it, the arrows, Page Up, Page Down, Home and End move the wheel\'s terms, Shift tenfold, and Escape shuts it as Enter does, the colour kept', () => {
 		const { panel, told } = usable();
 		press(panel, AT.col);
 		panel.release(...AT.col);
@@ -965,8 +966,9 @@ describe('a colour\'s picker', () => {
 		// Without an alpha, Shift with Page Down steps the saturation as Page Down does.
 		key('PageDown', true);
 		expect(picker.terms.saturation).toBeCloseTo(0.9, 12);
+		const stepped = panel.get('col', 'value');
 		key('Escape');
-		expect(panel.get('col', 'value')).toBe('#ff8b30');
+		expect(panel.get('col', 'value')).toBe(stepped);
 		expect(panel.openColor).toBeNull();
 		expect(key('Tab')).toBe(false);
 	});
@@ -1047,15 +1049,17 @@ describe('a colour\'s picker', () => {
 		const { panel, told } = usable();
 		click(panel, AT.col);
 		pressOn(panel, onWheel(pickerOf(panel)!.layout, 81, 120));
+		const pressed = panel.get('col', 'value');
+		expect(pressed).not.toBe('#ff8b30');
 		key('Escape');
 		expect(panel.openColor).toBeNull();
-		expect(panel.get('col', 'value')).toBe('#ff8b30');
+		expect(panel.get('col', 'value')).toBe(pressed);
 		key('Enter');
 		expect(panel.openColor?.id).toBe('col');
 		told.length = 0;
 		moveOn(panel, onWheel(pickerOf(panel)!.layout, 81, -60));
 		panel.release(0, 0);
-		expect(panel.get('col', 'value')).toBe('#ff8b30');
+		expect(panel.get('col', 'value')).toBe(pressed);
 		expect(told).toEqual([]);
 		const { panel: clear, told: clearTold, open } = coloured({ alpha: true });
 		open();
@@ -1326,8 +1330,10 @@ describe('a colour\'s picker', () => {
 		expect(picker.terms.square).toMatchObject({ h: 10 });
 		expect(picker.terms.square.s).toBeCloseTo(0.1, 12);
 		expect(told.length).toBe(2 * 11);
+		const stepped = panel.get('c', 'value');
 		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#ff0000');
+		expect(panel.get('c', 'value')).toBe(stepped);
+		expect(panel.openColor).toBeNull();
 	});
 
 	it('is worked by key in sliders: Left and Right move the bar acted on, Up and Down step its channel by 1 and Shift by 10, Page Up and Page Down by 16, Home and End to its ends, the alpha\'s bar a hundredth and a tenth', () => {
@@ -1374,8 +1380,9 @@ describe('a colour\'s picker', () => {
 		// Shift with Page Up and Page Down steps the alpha a twentieth here too.
 		key('PageDown', true);
 		expect(picker.terms.alpha).toBe(0.95);
+		const stepped = panel.get('c', 'value');
 		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#808080');
+		expect(panel.get('c', 'value')).toBe(stepped);
 		expect(panel.openColor).toBeNull();
 		// Without alpha there are three bars, and Right stops at the blue.
 		const { panel: flat, open: openFlat } = coloured({ mode: 'sliders' });
@@ -1441,7 +1448,7 @@ describe('a colour\'s picker', () => {
 		expect(panel.focusedWidget).toBeNull();
 	});
 
-	it('gives the hex field the page\'s input on a press released unmoved, the colour keeping the focus and the picker open, applies a six-digit hex as it is typed, holds text that does not read, and on Escape puts the colour back and returns the input to the picker', () => {
+	it('gives the hex field the page\'s input on a press released unmoved, the colour keeping the focus and the picker open, applies a six-digit hex as it is typed, holds text that does not read, and on Escape shuts the picker, the colour kept as it stands and the input back on the colour', () => {
 		const { panel, told, open } = coloured({});
 		open();
 		const picker = pickerOf(panel)!;
@@ -1473,24 +1480,25 @@ describe('a colour\'s picker', () => {
 		expect(picker.typed).toBe('zz');
 		expect(panel.get('c', 'value')).toBe('#00ff00');
 		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#ff8b30');
-		expect(picker.field).toBeNull();
+		expect(panel.openColor).toBeNull();
+		expect(panel.get('c', 'value')).toBe('#00ff00');
 		expect(input.input.readOnly).toBe(true);
 		expect(input.shown).toBe(false);
-		expect(panel.openColor?.id).toBe('c');
 		expect(panel.focusedWidget?.id).toBe('c');
-		expect(told).toEqual(['c:change', 'root:change', 'c:change', 'root:change']);
+		expect(told).toEqual(['c:change', 'root:change']);
 		// Enter applies the words as they stand, a short hex among them, and returns the input to the picker.
-		pressRelease(panel, centre(picker.layout.hex));
+		key('Enter');
+		const again = pickerOf(panel)!;
+		pressRelease(panel, centre(again.layout.hex));
 		typeWords('#f80');
-		expect(panel.get('c', 'value')).toBe('#ff8b30');
+		expect(panel.get('c', 'value')).toBe('#00ff00');
 		key('Enter');
 		expect(panel.get('c', 'value')).toBe('#ff8800');
-		expect(picker.field).toBeNull();
+		expect(again.field).toBeNull();
 		expect(panel.openColor?.id).toBe('c');
-		// Escape on the picker's body then puts back the colour it opened on.
+		// Escape on the picker's body shuts it too, the colour kept.
 		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#ff8b30');
+		expect(panel.get('c', 'value')).toBe('#ff8800');
 		expect(panel.openColor).toBeNull();
 	});
 
@@ -1577,7 +1585,7 @@ describe('a colour\'s picker', () => {
 		expect(panel.focusedWidget?.id).toBe('col');
 	});
 
-	it('places the page\'s input over the field\'s box on the popover\'s plane, past the host\'s edge where the popover reaches past it, with the picker\'s look; keeps the field through a press on the picker and a script\'s write, its words following the colour, which Escape then puts back', () => {
+	it('places the page\'s input over the field\'s box on the popover\'s plane, past the host\'s edge where the popover reaches past it, with the picker\'s look; keeps the field through a press on the picker and a script\'s write, its words following the colour, and on Escape keeps the colour typed', () => {
 		const { panel, open } = coloured({ swatches: ['#112233'] });
 		open();
 		const picker = pickerOf(panel)!;
@@ -1601,8 +1609,8 @@ describe('a colour\'s picker', () => {
 		typeWords('#445566');
 		expect(panel.get('c', 'value')).toBe('#445566');
 		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#0000ff');
-		expect(picker.field).toBeNull();
+		expect(panel.get('c', 'value')).toBe('#445566');
+		expect(panel.openColor).toBeNull();
 		// A 300-tall host's picker reaches past the foot, and a channel field's box with it.
 		const short = new TestPanel({ id: 'c', value: '#ff8b30', x: 10, y: 20, style: { width: 200 } }, [], W, 300);
 		const face = short.layout!.byId.get('c')!.face;
@@ -1616,7 +1624,7 @@ describe('a colour\'s picker', () => {
 		expect(reaching.box.y + channel.y).toBeGreaterThan(300);
 	});
 
-	it('cycles the colour space by a click on the space word, RGB, HSV, HSL and back, a channel field holding the input rewritten in its units with the colour Escape puts back kept, and the sliders\' bars and keys following it', () => {
+	it('cycles the colour space by a click on the space word, RGB, HSV, HSL and back, a channel field holding the input rewritten in its units, the colour kept, and the sliders\' bars and keys following it', () => {
 		const { panel, told, open } = coloured({ mode: 'sliders' });
 		open();
 		const picker = pickerOf(panel)!;
@@ -1656,14 +1664,15 @@ describe('a colour\'s picker', () => {
 		expect(picker.space).toBe('HSV');
 		expect(pageInput().input.value).toBe('0');
 		expect(picker.field).toEqual({ kind: 'channel', index: 0 });
-		// A space cycle moves no colour: Escape still puts back the colour the field was entered on.
+		// A space cycle moves no colour: the colour typed stands, and Enter applies the words rewritten as they read in the new space.
 		typeWords('120');
 		expect(panel.get('c', 'value')).toBe('#00ad00');
 		clickOn(panel, centre(picker.layout.space));
 		expect(picker.space).toBe('HSL');
 		expect(pageInput().input.value).toBe('120');
-		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#ad0000');
+		expect(panel.get('c', 'value')).toBe('#00ad00');
+		key('Enter');
+		expect(panel.get('c', 'value')).toBe('#00ad00');
 		expect(picker.field).toBeNull();
 		// The hex field's words are its own whatever the space: a space cycle leaves what was typed.
 		pressRelease(panel, centre(picker.layout.hex));
@@ -1725,14 +1734,15 @@ describe('a colour\'s picker', () => {
 		expect(panel.putAway()).toBe(false);
 		pressRelease(panel, centre(picker.layout.hex));
 		expect(picker.field).toEqual({ kind: 'hex', index: -1 });
-		// A press on the field holding the input leaves its words as typed and the colour Escape puts back.
+		// A press on the field holding the input leaves its words as typed.
 		typeWords('#00ff00');
 		typeWords('#00ff00a');
 		pressRelease(panel, [picker.layout.hex.x + 3, picker.layout.hex.y + 3]);
 		expect(picker.typed).toBe('#00ff00a');
 		expect(pageInput().input.value).toBe('#00ff00a');
-		key('Escape');
-		expect(panel.get('c', 'value')).toBe('#ff8b30');
+		key('Tab', true);
+		expect(picker.field).toBeNull();
+		expect(panel.get('c', 'value')).toBe('#00ff00');
 		// Where the page is not seen, a field's input is put back to the picker's body, the colour focused and the picker open.
 		pressRelease(panel, centre(picker.layout.hex));
 		expect(pageInput().shown).toBe(true);
@@ -1851,7 +1861,7 @@ describe('a colour\'s picker', () => {
 			expect(pickerOf(panel)!.layout.tip!.lines.join(' ')).toBe(DROPPER_TIPS.view);
 		});
 
-		it('is put away by a press anywhere else on the picker, which then works as ever, and by Escape, which leaves the picker and its colour as they stand', () => {
+		it('is put away by a press anywhere else on the picker, which then works as ever, and by Escape, which shuts the picker with it, the colour kept', () => {
 			const { panel, open } = coloured({});
 			open();
 			const layout = pickerOf(panel)!.layout;
@@ -1859,12 +1869,12 @@ describe('a colour\'s picker', () => {
 			pressRelease(panel, centre(layout.hex));
 			expect(panel.dropping).toBe(false);
 			expect(pickerOf(panel)!.field).toEqual({ kind: 'hex', index: -1 });
-			key('Escape');
+			key('Tab', true);
 			clickOn(panel, centre(layout.dropper!));
 			panel.takeDropped([0, 0, 255], false);
 			key('Escape');
 			expect(panel.dropping).toBe(false);
-			expect(panel.openColor?.id).toBe('c');
+			expect(panel.openColor).toBeNull();
 			expect(panel.get('c', 'value')).toBe('#0000ff');
 		});
 
@@ -1889,7 +1899,7 @@ describe('a colour\'s picker', () => {
 			expect(dropperOf(panel).abort).toBeNull();
 		});
 
-		it('takes nothing where the browser\'s eyedropper is escaped, put away by Escape or shut under, and opens none in view mode, arming on its view though the browser has one', async () => {
+		it('takes nothing where the browser\'s eyedropper is escaped or the picker shut under it, by Escape among the rest, and opens none in view mode, arming on its view though the browser has one', async () => {
 			const opened = browserEyeDropper();
 			const { panel, open } = coloured({});
 			panel.setEyedropper({ mode: 'screen' });
@@ -1899,12 +1909,13 @@ describe('a colour\'s picker', () => {
 			await settled();
 			expect(panel.get('c', 'value')).toBe('#ff8b30');
 			expect(dropperOf(panel).abort).toBeNull();
-			// Put away by Escape, the picker kept open.
+			// Escape shuts the picker under it, which aborts it.
 			clickOn(panel, dropperAt(panel));
 			key('Escape');
 			expect(opened[1].signal!.aborted).toBe(true);
-			expect(panel.openColor?.id).toBe('c');
-			// Shut under it, it is aborted and takes nothing.
+			expect(panel.openColor).toBeNull();
+			open();
+			// Shut under it otherwise, it is aborted and takes nothing.
 			clickOn(panel, dropperAt(panel));
 			panel.closePicker();
 			expect(opened[2].signal!.aborted).toBe(true);
@@ -1939,7 +1950,7 @@ describe('a colour\'s picker', () => {
 			expect(painted().unavailable).toBe(false);
 		});
 
-		it('is drawn unavailable where it is set to the screen, the browser has no eyedropper of its own and no view is given, its tooltip shown while the pointer is over it and pinned open by a click on it, which picks nothing, until a second click, a press or click anywhere else on the picker, Escape, or the eyedropper changing', () => {
+		it('is drawn unavailable where it is set to the screen, the browser has no eyedropper of its own and no view is given, its tooltip shown while the pointer is over it and pinned open by a click on it, which picks nothing, until a second click, a press or click anywhere else on the picker, the eyedropper changing, or Escape, which shuts the picker', () => {
 			const { panel, told, open } = coloured({});
 			panel.setEyedropper({ mode: 'screen' });
 			open();
@@ -1966,21 +1977,20 @@ describe('a colour\'s picker', () => {
 			pressRelease(panel, centre(layout.hex));
 			expect(painted().tip).toBe(false);
 			expect(pickerOf(panel)!.field).toEqual({ kind: 'hex', index: -1 });
-			key('Escape');
+			key('Tab', true);
 			// And a click anywhere else, from a host that clicks without pressing first.
 			clickOn(panel, dropper);
 			clickOn(panel, centre(layout.old));
 			expect(painted().tip).toBe(false);
-			// And Escape, which leaves the picker open.
-			clickOn(panel, dropper);
-			key('Escape');
-			expect(painted().tip).toBe(false);
-			expect(panel.openColor?.id).toBe('c');
 			// And the eyedropper changing.
 			clickOn(panel, dropper);
 			panel.setEyedropper({ mode: 'screen' });
 			expect(dropperOf(panel).pinned).toBe(false);
 			expect(painted().tip).toBe(false);
+			// And Escape, which shuts the picker, the colour kept.
+			clickOn(panel, dropper);
+			key('Escape');
+			expect(panel.openColor).toBeNull();
 			expect(panel.get('c', 'value')).toBe('#ff8b30');
 		});
 
@@ -2067,7 +2077,7 @@ describe('a colour\'s picker', () => {
 			expect(panel.get('c', 'value')).toBe('#00ff0080');
 		});
 
-		it('aborts the app\'s pick where the eyedropper is put away first, by a second click, a press anywhere else on the picker, Escape, a change of eyedropper or the picker shutting, and takes nothing after', () => {
+		it('aborts the app\'s pick where the eyedropper is put away first, by a second click, a press anywhere else on the picker, a change of eyedropper or the picker shutting, Escape among what shuts it, and takes nothing after', () => {
 			const { picks, pick } = appPick();
 			const { panel, open } = coloured({});
 			panel.setEyedropper({ mode: 'custom', pick });
@@ -2085,17 +2095,18 @@ describe('a colour\'s picker', () => {
 			pressRelease(panel, centre(pickerOf(panel)!.layout.hex));
 			expect(picks[1].signal.aborted).toBe(true);
 			expect(pickerOf(panel)!.field).toEqual({ kind: 'hex', index: -1 });
-			key('Escape');
-			// Escape, the picker kept open.
-			clickOn(panel, dropperAt(panel));
-			key('Escape');
-			expect(picks[2].signal.aborted).toBe(true);
-			expect(panel.openColor?.id).toBe('c');
+			key('Tab', true);
 			// A change of eyedropper.
 			clickOn(panel, dropperAt(panel));
 			panel.setEyedropper({ mode: 'custom', pick });
+			expect(picks[2].signal.aborted).toBe(true);
+			// Escape, which shuts the picker.
+			clickOn(panel, dropperAt(panel));
+			key('Escape');
 			expect(picks[3].signal.aborted).toBe(true);
-			// The picker shutting.
+			expect(panel.openColor).toBeNull();
+			// The picker shut otherwise.
+			open();
 			clickOn(panel, dropperAt(panel));
 			panel.closePicker();
 			expect(picks[4].signal.aborted).toBe(true);

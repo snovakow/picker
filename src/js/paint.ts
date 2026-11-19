@@ -156,10 +156,9 @@ export const fieldLine = (laid: FieldOf, hovered = false): { width: number; colo
 /**
  * Paints a popover's face, a colour's picker's, over its whole box: a field
  * in its widget's own background, edged and rounded as the widget's field is
- * while it has the focus, which it keeps while its picker is open: its line,
- * the hovered one where it draws the field's own, and the accent's ring over
- * it, so the picker reads apart from whatever it opens over as its widget
- * does.
+ * while it has the focus: its line, the hovered one where it draws the
+ * field's own, and the accent's ring over it, so the picker reads apart from
+ * whatever it opens over as its widget does.
  *
  * @returns How far in from the box's edge the line and the ring reach (`popoverEdge`)
  */

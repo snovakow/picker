@@ -72,10 +72,13 @@ were cut are noted).
 
 A page has one picker (`pagePicker()`, a `PagePicker`), which every well joins unless its
 options name another, and it is open on one well at a time. A click on a well opens it there,
-moving it from another well, or shuts it where it is open on that well. The well that has the
-focus is the one it shows, so where the focus leaves the wells, as a press elsewhere on the page
-takes it, the picker shuts. A second picker, made with `new PagePicker()`, serves the wells that
-name it, and one opening shuts the other.
+moving it from another well, or shuts it where it is open on that well. It stays open as the
+focus goes elsewhere on the page, and a press on it gives its well the focus back. It shuts
+only as its well is clicked again; as its close, Escape while it has the focus, or a script
+shuts it, each keeping the colour as it stands; and as its well is disabled, taken off the page
+or hidden, by `display: none` or `visibility: hidden` on the well or what holds it. A well
+scrolled out of sight keeps its picker open. A second picker, made with `new PagePicker()`,
+serves the wells that name it, and one opening shuts the other.
 
 ```ts
 import { ColourWell, pagePicker } from './src/index.ts';
@@ -104,12 +107,12 @@ Where it stands is its docking:
 | `popout` | In a window of its own alone |
 
 The picker's window opens beside the well as the picker opens, sized to the picker, and shuts as
-the picker shuts, as for a press elsewhere on the page. It stays as the picker moves to another
-well, and the next opens where the viewer left the last; the viewer shutting it shuts the
+the picker shuts. It stays as the picker moves to another well and as the focus leaves the
+wells, and the next opens where the viewer left the last; the viewer shutting it shuts the
 picker. A field in the window is typed through an input of the window's own, and a key pressed
-in the window works the picker as one on the well does. A browser opens such a window only for
-a click, so where it refuses one, the picker stands in the page: in `auto` as though docked,
-and in `popout` until it shuts.
+in the window works the picker as one on the well does, the well taking the focus back where it
+went elsewhere. A browser opens such a window only for a click, so where it refuses one, the
+picker stands in the page: in `auto` as though docked, and in `popout` until it shuts.
 
 ## Hosting the picker yourself: 3D and VR
 
@@ -163,19 +166,18 @@ In `custom`, the app hands the picker each colour it reads, as hex, through `tak
 often as it likes, so a drag over its target shows the colour as it goes; `take(colour, true)`
 hands the last, and `take(null, true)` ends with none. `signal` aborts where the eyedropper is
 put away first, and a take after that does nothing. While the app's pick is armed, a press
-anywhere on the page but the picker and its wells is the app's: the picker stays open, and the
-page's input keeps its focus.
+anywhere on the page but the picker and its wells is the app's, and the page's input keeps its
+focus through it.
 
-A colour it takes is taken as a named cell's is: its bytes, the alpha the colour carries
-kept. Each colour taken tells `change` where it changes the colour. The tooltip shows while
-the pointer is over the eyedropper or the tooltip, while the eyedropper is armed, and, where it
-is unavailable, pinned open by a click on it until a second click; the last two are what a
-touch sees, having no pointer over it. A press anywhere else on the picker puts an armed
-eyedropper or a pinned tooltip away, and works as ever; so do Escape while no field has the
-input, which leaves the picker open and its colour as it stands, the picker shutting, and the
-eyedropper changing, unless from one view to another. A press on the tooltip itself leaves it
-standing for the click after, which puts it away and clicks nothing under it. A refusal of the
-browser's eyedropper other than its Escape is thrown with the browser's cause.
+A colour it takes is taken as a named cell's is: its bytes, the alpha the colour carries kept.
+Each colour taken tells `change` where it changes the colour. The tooltip shows while the
+pointer is over the eyedropper or the tooltip, while the eyedropper is armed, and, where it is
+unavailable, pinned open by a click on it until a second click; the last two are what a touch
+sees, having no pointer over it. A press anywhere else on the picker puts an armed eyedropper
+or a pinned tooltip away, and works as ever; so do the picker shutting, which Escape does, and
+the eyedropper changing, unless from one view to another. A press on the tooltip itself leaves
+it standing for the click after, which puts it away and clicks nothing under it. A refusal of
+the browser's eyedropper other than its Escape is thrown with the browser's cause.
 
 A page's view is an element of the page and what it draws at a point (`DropperView`). Its
 press is taken ahead of the view's own listeners, the click after it swallowed, and the page's
@@ -211,8 +213,9 @@ where a test needs a DOM:
   presses, clicks, keys, fields and modes, the eyedropper in each mode, the browser's and the
   app's pick stand-ins, and the dock button;
 - `colourWell.test.ts`: the well and the page's picker: one for each rule the picker takes the
-  pointer by, one picker moving between wells, the eyedropper's press on the view and the app's
-  own pick, and the picker's window, a stand-in over a document of its own;
+  pointer by, one picker moving between wells, what shuts it and what leaves it open, the
+  eyedropper's press on the view and the app's own pick, and the picker's window, a stand-in
+  over a document of its own;
 - `pickerView.test.ts`: the picker's layout, regions and painting, the eyedropper's among them;
 - `picker.test.ts`: the dialog's drags and the faces it loads;
 - the rest: a widget's options, and each module's colour maths, layout, painting, input and

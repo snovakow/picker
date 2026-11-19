@@ -6,49 +6,53 @@
  * it serves: its pixels are the page's, measured from the window's top-left
  * corner, and it is as large as the window.
  *
- * One well has the focus at a time. A press released unmoved on a well
- * gives it the page's input, taken from another of the picker's wells
- * without letting it go; a click on a well opens the picker on it, or shuts
- * it where it is open on that well, and moves a picker open on another well
- * to this one. Where the focus leaves the picker's wells, the picker shuts,
- * so while it is open it shows the one well that has the focus. A page has
- * one picker (`pagePicker`) unless it makes more; one opening shuts every
- * other.
+ * One well has the focus at a time. A press released unmoved on a well gives
+ * it the page's input, taken from another of the picker's wells without
+ * letting it go; a click on a well opens the picker on it, or shuts it where
+ * it is open on that well, and moves a picker open on another well to this
+ * one. The picker stays open on its well as the focus goes elsewhere, a
+ * field that held the input letting it go, and a press on the picker gives
+ * its well the focus back. It shuts only as its well is clicked again, as
+ * its close, Escape while it has the focus or a script shuts it, as the
+ * viewer shuts its window, and as its well is disabled, leaves the page or
+ * is hidden there, which it looks for on every frame while it is open; its
+ * well scrolled out of the window leaves it open. A page has one picker
+ * (`pagePicker`) unless it makes more; one opening shuts every other.
  *
  * It takes the pointer on its wells and on itself: a primary press is held
  * from the moment it goes down, the pointer captured, and is a drag once it
  * has gone further on the screen than a drag's start, a touch's as far as a
- * touch's hold (`TOUCH_SLOP`), anything else's `DRAG_SLOP`; the click after a
- * press that moved is the drag's, and is swallowed. A press is let go as
+ * touch's hold (`TOUCH_SLOP`), anything else's `DRAG_SLOP`; the click after
+ * a press that moved is the drag's, and is swallowed. A press is let go as
  * cancelled where the browser cancels the pointer or takes the capture back,
  * where a mouse moves with no button down, where a window loses the focus,
  * and where its own pointer or a new first pointer goes down again. A press
  * carrying the picker in the page reads the pointer held inside the window,
- * so the point carried stays in view. A press anywhere else on the page
- * shuts the picker and lets the input go, the input's own element aside,
+ * so the point carried stays in view. A press anywhere else on the page lets
+ * the input go, the input's own element aside, and leaves the picker open,
  * but while the app's own pick is armed (`CustomPick`), whose presses are
- * the app's wherever they land: the picker stays open, and the page's input
- * keeps its focus.
+ * the app's wherever they land: the page's input keeps its focus.
  *
  * Where it stands is its docking (`Docking`). In the page, it stands by
  * `screenPopoverRect`: against the face of the well it is open on, on the
  * side its layout opens it, or the other where only that side holds it
  * inside the window, kept inside the window, and on the side it stood on as
- * the viewer began to carry it; it is stood again as the page scrolls or the
- * window is resized. In a window of its own, the window opens beside the well
- * as the picker opens, sized to the picker, and shuts as the picker does,
- * where it was left kept for the next; the picker is carried nowhere in it,
- * the viewer moving the window. In `auto` it stands in the page with a button
- * to pop it out (`DockButton`), and in its window with one to dock it back,
- * the viewer's choice kept for the next opening. Where the browser refuses
- * the window, as it refuses one no click asked for, the picker stands in the
- * page.
+ * the viewer began to carry it; it is stood again as the page scrolls, as
+ * the window is resized and as its well moves on the page. In a window of
+ * its own, the window opens beside the well as the picker opens, sized to
+ * the picker, and shuts as the picker does, where it was left kept for the
+ * next; the picker is carried nowhere in it, the viewer moving the window.
+ * In `auto` it stands in the page with a button to pop it out
+ * (`DockButton`), and in its window with one to dock it back, the viewer's
+ * choice kept for the next opening. Where the browser refuses the window, as
+ * it refuses one no click asked for, the picker stands in the page.
  *
  * The page's input stands over the well that has the focus, out of sight,
  * and over the picker's field that holds it, shown. In the picker's window a
  * field is typed through an input of the window's own, the well keeping the
  * page's, and a key pressed in the window while no field holds that input
- * works the picker as a key in the page's input does.
+ * works the picker as a key in the page's input does, its well taking the
+ * focus back where it went elsewhere.
  *
  * The eyedropper is the picker's (`Eyedropper`), the browser's own unless it
  * sets another, where the well it is open on sets none of its own. While it
@@ -100,7 +104,7 @@ export interface PickedWell {
 	readonly state: WidgetState;
 	/** The eyedropper the well sets of its own; null for the picker's. */
 	readonly eyedropper: Eyedropper | null;
-	/** The well laid out, in the page's pixels; null where it is not on the page. */
+	/** The well laid out, in the page's pixels; null where it is not on the page or is hidden there. */
 	laid(): Laid | null;
 	/** Tells the well's page an event of its colour. */
 	tell(event: WidgetEvent): void;
@@ -209,6 +213,10 @@ export class PagePicker implements PickerHost, InputHost {
 	private windowAt: { x: number; y: number } | null = null;
 	/** Whether the picker's window is to shut as the step ends, unless the picker opens in it again first. */
 	private shutting = false;
+	/** The frame the open picker's well is next looked at on (`lookAtWell`); 0 while none is asked for. */
+	private watchFrame = 0;
+	/** Where the open picker's well stood on the page as the picker was last stood against it; null while it is shut. */
+	private watchedAt: Box | null = null;
 	/** The name the picker's window is opened under, its own. */
 	private readonly windowName: string;
 	private disposed = false;
@@ -229,7 +237,7 @@ export class PagePicker implements PickerHost, InputHost {
 		Object.assign(popover.style, { position: 'fixed', left: '0px', top: '0px', zIndex: '0', display: 'none' });
 		this.listenOn(popover, null, this.listened);
 		document.body.appendChild(popover);
-		// A press anywhere else on the page shuts the picker, ahead of what it lands on, but a press on the view the eyedropper takes.
+		// A press anywhere else on the page lets the focus go, ahead of what it lands on, but a press on the view the eyedropper takes.
 		this.listen(window, 'pointerdown', (event) => this.pressedElsewhere(event as PointerEvent), true);
 		this.listen(window, 'pointermove', (event) => this.dropMoved(event as PointerEvent), true);
 		this.listen(window, 'pointerup', (event) => this.dropEnded(event as PointerEvent, true), true);
@@ -249,7 +257,7 @@ export class PagePicker implements PickerHost, InputHost {
 	// What a script reads and does
 	// ---------------------------------------------------------------------
 
-	/** The well that has the focus, which the picker shows while it is open; null for none. */
+	/** The well that has the focus; null for none, as while the focus is elsewhere, which leaves the picker open on its well (`openWell`). */
 	get well(): ColourWell | null {
 		return this.focusedWidget ? this.wells.get(this.focusedWidget)?.well ?? null : null;
 	}
@@ -330,6 +338,7 @@ export class PagePicker implements PickerHost, InputHost {
 		for (const widget of [...this.wells.keys()]) this.leave(widget);
 		this.picker.close();
 		this.shutWindow();
+		this.unwatchWell();
 		this.disposed = true;
 		this.showCrosshair();
 		for (const each of this.listened.splice(0)) each.target.removeEventListener(each.type, each.listener, each.options);
@@ -457,11 +466,14 @@ export class PagePicker implements PickerHost, InputHost {
 		const laid = widget ? this.laidOf(widget) : null;
 		if (!box || !stand || !laid) {
 			this.screen = null;
+			this.unwatchWell();
 			this.hidePicker();
 			this.showCrosshair();
 			return;
 		}
 		if (!(this.standsOut && this.standOut(box, laid))) this.standInPage(box, stand, laid);
+		this.watchedAt = { ...laid.box };
+		this.watchWell();
 		this.placeInput();
 	}
 
@@ -721,9 +733,11 @@ export class PagePicker implements PickerHost, InputHost {
 		this.shutWindow();
 	}
 
-	/** A key pressed in the picker's window while no field holds its input, which keeps its own keys: worked as one in the page's input. */
+	/** A key pressed in the picker's window while no field holds its input, which keeps its own keys: worked as one in the page's input, the window's keys being its picker's, the well the picker is open on taking the focus back where it went elsewhere. */
 	private windowKey(event: KeyboardEvent): void {
-		if (event.defaultPrevented || !this.focusedWidget || event.isComposing) return;
+		const open = this.picker.openColor;
+		if (event.defaultPrevented || !open || event.isComposing) return;
+		if (this.focusedWidget !== open) this.focus(open);
 		if (this.onKey(event)) event.preventDefault();
 	}
 
@@ -763,7 +777,8 @@ export class PagePicker implements PickerHost, InputHost {
 	 * handed between the picker's body and one of its fields, the blur is the
 	 * hand-off's, and leaves both. The window's own input going while the well
 	 * keeps the page's gives a field's input back to the colour. Otherwise the
-	 * well has lost the focus: its colour is drawn resting, and the picker shut.
+	 * well has lost the focus: its colour is drawn resting, and the picker
+	 * stays open on it, a field that held an input letting it go.
 	 */
 	onBlur(): void {
 		if (this.picker.handing) return;
@@ -779,7 +794,7 @@ export class PagePicker implements PickerHost, InputHost {
 			picked.state.focused = false;
 			picked.invalidate();
 		}
-		if (this.picker.openColor === widget) this.picker.close();
+		if (this.picker.inField(widget)) this.picker.dropField();
 	}
 
 	/** Puts a picker field's shown input away, back to the colour's body, keeping the focus, where an embedder takes the page out of sight, as it does for VR; whether it did. */
@@ -863,6 +878,9 @@ export class PagePicker implements PickerHost, InputHost {
 		if (widget === null) {
 			const uv = this.uvOf(event);
 			if (!uv || !this.picker.press(uv)) return;
+			// The focus gone elsewhere comes back to the picker's well, so the picker's keys, Escape among them, are its own again.
+			const open = this.picker.openColor;
+			if (open && this.focusedWidget !== open) this.focus(open);
 		} else {
 			// A press on a well is a field's: it takes the focus as it is released on it unmoved.
 			this.picker.forgetPress();
@@ -992,7 +1010,7 @@ export class PagePicker implements PickerHost, InputHost {
 		}
 	}
 
-	/** A press anywhere off the picker's wells, the picker and the page's input shuts the picker and lets the input go, but a press on the view the armed eyedropper takes (`dropDown`), and any press while the app's own pick is armed, which is the app's. */
+	/** A press anywhere off the picker's wells, the picker and the page's input lets the input go, the picker staying open, but a press on the view the armed eyedropper takes (`dropDown`), and any press while the app's own pick is armed, which is the app's. */
 	private pressedElsewhere(event: PointerEvent): void {
 		// A click after this press is its own: none is the eyedropper's any more.
 		this.dropClick = false;
@@ -1007,7 +1025,6 @@ export class PagePicker implements PickerHost, InputHost {
 		}
 		const input = pageInputMade();
 		if (input && target && input.input === target) return;
-		this.picker.close();
 		if (input?.focused && input.focusedHost === this) input.blur();
 	}
 
@@ -1021,6 +1038,45 @@ export class PagePicker implements PickerHost, InputHost {
 	private restand(): void {
 		if (this.picker.openColor) this.picker.relay();
 		else this.placeInput();
+	}
+
+	/** Asks for the open picker's well to be looked at on the next frame (`lookAtWell`), where it is not already. */
+	private watchWell(): void {
+		if (this.watchFrame || this.disposed) return;
+		this.watchFrame = requestAnimationFrame(() => {
+			this.watchFrame = 0;
+			this.lookAtWell();
+		});
+	}
+
+	/** Stops looking at the well, as the picker shuts. */
+	private unwatchWell(): void {
+		if (this.watchFrame) cancelAnimationFrame(this.watchFrame);
+		this.watchFrame = 0;
+		this.watchedAt = null;
+	}
+
+	/**
+	 * Looks at the open picker's well, on every frame while it is open: gone
+	 * from the page or hidden there, as a page takes it away or hides what
+	 * holds it, it shuts the picker and lets its focus go; moved on the page
+	 * with no scroll or resize to say so, as what stands before it changes,
+	 * it has the picker stood against it again. Scrolled out of the window,
+	 * it leaves the picker open.
+	 */
+	private lookAtWell(): void {
+		const widget = this.picker.openColor;
+		if (!widget || this.disposed) return;
+		const laid = this.laidOf(widget);
+		if (!laid) {
+			this.picker.close();
+			this.placeInput();
+			return;
+		}
+		const was = this.watchedAt;
+		const { x, y, w, h } = laid.box;
+		if (!was || was.x !== x || was.y !== y || was.w !== w || was.h !== h) this.picker.relay();
+		this.watchWell();
 	}
 
 	// ---------------------------------------------------------------------

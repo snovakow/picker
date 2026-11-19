@@ -41,6 +41,22 @@ const shifted = (laid: Laid, dx: number, dy: number): Laid => {
 	};
 };
 
+/**
+ * Whether a canvas shows on the page: in the document, and neither it nor
+ * what holds it hidden, as by display: none, visibility: hidden or
+ * content-visibility: hidden. Where the browser cannot say
+ * (`checkVisibility`), a box of no size reads as display: none's. Scrolled
+ * out of the window, it still shows.
+ */
+const shows = (canvas: HTMLCanvasElement): boolean => {
+	if (!canvas.isConnected) return false;
+	// Both names, the second the older browsers'.
+	if (typeof canvas.checkVisibility === 'function') return canvas.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true });
+	const rect = canvas.getBoundingClientRect();
+	const { visibility } = getComputedStyle(canvas);
+	return rect.width > 0 && rect.height > 0 && visibility !== 'hidden' && visibility !== 'collapse';
+};
+
 export class ColourWell {
 	readonly widget: ColourWidget;
 	/** The well's canvas, which the page places where it likes. */
@@ -226,9 +242,9 @@ export class ColourWell {
 		this.frame = requestAnimationFrame(() => this.update());
 	}
 
-	/** The well laid out in the page's pixels, where its canvas stands in the window; null where it is not on the page. */
+	/** The well laid out in the page's pixels, where its canvas stands in the window; null where it is not on the page or does not show there (`shows`). */
 	private laidOnPage(): Laid | null {
-		if (this.disposed || !this.canvas.isConnected) return null;
+		if (this.disposed || !shows(this.canvas)) return null;
 		const rect = this.canvas.getBoundingClientRect();
 		return shifted(this.laid, rect.left, rect.top);
 	}
